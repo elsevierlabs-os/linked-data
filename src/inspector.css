@@ -1,0 +1,54 @@
+
+  .links path {
+    stroke: #444;
+    stroke-opacity: 0.6;
+  }
+
+  marker {
+    stroke: #444;
+    fill: #444;
+    stroke-width: 0.1;
+  }
+
+  .edgelabel textPath {
+    fill: #444;
+  }
+
+  .nodes circle {
+    stroke: #fff;
+    stroke-width: 1.5px;
+  }
+
+  text {
+    font-family: "Elsevier Display", sans-serif;
+    /* font-size: 10px; */
+  }
+
+  .d3-tip {
+    line-height: 1;
+    padding: 6px;
+    background: rgba(0, 0, 0, 0.8);
+    color: #fff;
+    border-radius: 4px;
+    font-family: "Elsevier Display", sans-serif;
+    /* font-size: 10px; */
+  }
+
+  table {
+    max-width: 500px;
+    vertical-align: top;
+  }
+
+  th, td {
+    vertical-align: top;
+  }
+
+  td {color: lightgray;}
+
+  svg {
+    /* background: #f6f2f0; */
+    width: 100%; 
+    padding-bottom: 92%; 
+    height: 1px; 
+    overflow: visible
+  }
