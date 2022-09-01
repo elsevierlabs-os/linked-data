@@ -31,14 +31,14 @@ You can also access the commands through the command palette: `Cmd-Shift-p` or `
 
 ### Conversion Between RDF Formats
 
-![RDF Formats](img/different_formats.png)
+![RDF Formats](media/img/different_formats.png)
 
 ### Visualisation and JSON-LD Variants
 
-![Visualization](img/jsonld_visualisation.png)
+![Visualization](media/img/jsonld_visualisation.png)
 
 ### SPARQL and SHAQL
-![Querying and Validation](img/shacl_and_sparql.png)
+![Querying and Validation](media/img/shacl_and_sparql.png)
 
 
 ## Extension Settings
