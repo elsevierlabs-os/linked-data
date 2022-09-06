@@ -3,7 +3,7 @@ const path = require('path');
 module.exports = {
   mode: 'production',
   entry: './src/inspector.js',
-  watch: true,
+  watch: false,
   output: {
     filename: 'inspector.js',
     path: path.resolve(__dirname, 'media'),

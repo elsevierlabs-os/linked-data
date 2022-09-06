@@ -2,9 +2,10 @@
   "name": "linked-data",
   "displayName": "Linked Data Extension",
   "publisher": "Elsevier",
+  "author": {"name": "Rinke Hoekstra", "email": "r.hoekstra@elsevier.com"},
   "repository": "https://github.com/elsevierlabs-os/linked-data",
   "description": "This extension provides shortcuts for standard Linked Data operations, format conversions, validation, querying and a graph visualization.",
-  "version": "1.0.2",
+  "version": "1.0.3",
   "icon": "media/img/lde-icon.png",
   "engines": {
     "vscode": "^1.59.0"

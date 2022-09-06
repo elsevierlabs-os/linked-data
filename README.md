@@ -4,6 +4,8 @@ The Elsevier Data Architecture Linked Data Extension for Visual Studio Code brin
 
 This extension depends on the [Stardog Languages Extension Pack](https://marketplace.visualstudio.com/items?itemName=stardog-union.vscode-stardog-languages) from Stardog Union
 
+For any questions, comments, please contact [Rinke Hoekstra](mailto:r.hoekstra@elsevier.com)
+
 ## Features
 
 The extension supports the following:
@@ -27,7 +29,7 @@ The extension supports the following:
 
 You can also access the commands through the command palette: `Cmd-Shift-p` or `Ctrl-Shift-p` and then start typing "Linked Data".
 
-## Screenshots
+<!-- ## Screenshots
 
 ### Conversion Between RDF Formats
 
@@ -38,7 +40,7 @@ You can also access the commands through the command palette: `Cmd-Shift-p` or `
 ![Visualization](media/img/jsonld_visualisation.png)
 
 ### SPARQL and SHAQL
-![Querying and Validation](media/img/shacl_and_sparql.png)
+![Querying and Validation](media/img/shacl_and_sparql.png) -->
 
 
 ## Extension Settings
