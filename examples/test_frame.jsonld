@@ -1,0 +1,10 @@
+{
+    "@context": {
+        "@vocab": "https://example.com/a/",
+        "@base": "https://example.com/b/",
+        "myns": "https://example.com/a/",
+        "otherns": "https://example.com/b/",
+        "owl": "http://www.w3.org/2002/07/owl#"
+    },
+    "@type": "myns:Fish"
+}

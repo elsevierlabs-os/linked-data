@@ -1,0 +1,4 @@
+# file: shacl_example.ttl
+SELECT * WHERE  {
+    ?a ?b ?c .
+}

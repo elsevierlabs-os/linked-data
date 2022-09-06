@@ -1,0 +1,23 @@
+{
+    "@context": {
+        "@vocab": "https://example.com/a/",
+        "@base": "https://example.com/b/",
+        "myns": "https://example.com/a/",
+        "otherns": "https://example.com/b/",
+        "owl": "http://www.w3.org/2002/07/owl#"
+    },
+    "@graph": [{
+        "@id": "b123",
+        "@type": "Fish",
+        "name": "What a nice name",
+        "linkedTo": {
+            "@id": "b456",
+            "name": "That's a silly name",
+            "@type": "Squid",
+            "linkedTo": {
+                "name": "No names are cool"
+            }
+        }},
+        {"@id": "myns:Fish", "@type": "owl:Class"}
+    ]
+}

@@ -1,14 +1,44 @@
 # Linked Data Extension
 
-The Elsevier Data Architecture Linked Data Extension for Visual Studio Code brings a number of Linked Data related functionalities to a popular integrated development environment.
+The Elsevier Data Architecture Linked Data Extension (LDE) for Visual Studio Code brings a number of Linked Data related functionalities to a popular integrated development environment.
 
-This extension depends on the [Stardog Languages Extension Pack](https://marketplace.visualstudio.com/items?itemName=stardog-union.vscode-stardog-languages) from Stardog Union
+It's not industry-grade solid, but should be *good enough™*. For any questions, comments, please contact [Rinke Hoekstra](mailto:r.hoekstra@elsevier.com), or create an issue in the [GitHub repository](https://github.com/elsevierlabs-os/linked-data).
 
-For any questions, comments, please contact [Rinke Hoekstra](mailto:r.hoekstra@elsevier.com)
+## What it does
 
-## Features
+* Visualise an RDF graph directly from a file.
+* Convert between JSON-LD, Turtle, RDF/XML and N-Quads (some quirks because not every format supports named graphs)
+* Convert between JSON-LD variants (compact, expanded, flattened)
+* Apply a JSON-LD frame to a JSON-LD file.
+* Validate your RDF against a SHACL file
+* Run a SPARQL query directly on a file and see the results in HTML and CSV
 
-The extension supports the following:
+The JSON-LD operations can work with local context files. This overcomes the limitation in most JSON-LD libraries that interpret context references as URLs. See the `loadLocalContexts` setting below.
+ 
+Download Linked Data Extension from <https://marketplace.visualstudio.com/items?itemName=Elsevier.linked-data> or through the Extensions menu of VSCode.
+
+This extension depends on the [Stardog Languages Extension Pack](https://marketplace.visualstudio.com/items?itemName=stardog-union.vscode-stardog-languages) from Stardog Union for file type recognition, syntax highlighting and syntax checking.
+ 
+## Screenshots
+
+For the files used in the screenshots, see the [examples](examples) folder.
+
+### Conversion Between RDF Formats
+
+![RDF Formats](media/img/different_formats.png)
+
+### Visualisation and JSON-LD Variants
+
+![Visualization](media/img/jsonld_visualisation.png)
+
+### SPARQL and SHAQL
+![Querying and Validation](media/img/shacl_and_sparql.png)
+
+## Commands
+
+You can access the commands through the command palette: `Cmd-Shift-p` or `Ctrl-Shift-p` and then start typing "Linked Data", or use one of the following keyboard shortcuts.
+
+### Keyboard Shortcuts
 
 * Standard syntactic JSON-LD operations:
   * `Ctrl-Option-e`/`Ctrl-Alt-e`: Convert a JSON-LD structure to the [expanded document form](https://www.w3.org/TR/json-ld11/#expanded-document-form)
@@ -27,27 +57,11 @@ The extension supports the following:
 * Query a Graph:
   * `Ctrl-Option-q`/`Ctrl-Alt-q`: Run the SPARQL query against an RDF file (see below)
 
-You can also access the commands through the command palette: `Cmd-Shift-p` or `Ctrl-Shift-p` and then start typing "Linked Data".
-
-<!-- ## Screenshots
-
-### Conversion Between RDF Formats
-
-![RDF Formats](media/img/different_formats.png)
-
-### Visualisation and JSON-LD Variants
-
-![Visualization](media/img/jsonld_visualisation.png)
-
-### SPARQL and SHAQL
-![Querying and Validation](media/img/shacl_and_sparql.png) -->
-
-
 ## Extension Settings
 
 This extension contributes the following settings:
 
-* `linked-data.loadLocalContexts`: Should the extension try to load local (non-URI) contexts?
+* `linked-data.loadLocalContexts`: Should the extension try to load local (non-URI) JSON-LD context files. This is especially useful when testing large context files that are intended to be shared across multiple JSON-LD files. It overcomes the problem that JSON-LD libraries interpret references to contexts as URIs, which would require running an HTTP server to test the context.
 
 ## Tips and Recommendations
 
@@ -91,7 +105,4 @@ SPARQL results are shown both as a web view with a table that supports sorting a
 * Zazuko's SHACL validator, <https://github.com/zazuko/rdf-validate-shacl>
 * Google's Schemarama, <https://github.com/google/schemarama>
 * d3js, <https://d3js.org>
-
-## Release Notes
-
-- v1.0.0 - Open Source Release
+* ... and many others.
