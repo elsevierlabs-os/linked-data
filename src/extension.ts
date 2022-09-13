@@ -334,7 +334,7 @@ async function updateGraphView(document:vscode.TextDocument, extensionUri: vscod
 				<head>
 					<meta charset="UTF-8">
 					<meta name="viewport" content="width=device-width, initial-scale=1.0">
-					<title>JSON-LD Viewer</title>
+					<title>Graph Viewer</title>
 					<!--
 					Use a content security policy to only allow loading images from https or from our extension directory,
 					and only allow scripts that have a specific nonce.
