@@ -31,7 +31,7 @@ For the files used in the screenshots, see the [examples](examples) folder.
 
 ![Visualization](media/img/jsonld_visualisation.png)
 
-### SPARQL and SHAQL
+### SPARQL and SHACL
 ![Querying and Validation](media/img/shacl_and_sparql.png)
 
 ## Commands
