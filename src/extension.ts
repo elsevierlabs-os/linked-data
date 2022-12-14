@@ -7,7 +7,7 @@ import { parse } from 'yaml';
 const jsonld = require('jsonld');
 const ShaclValidator = require('schemarama/shaclValidator').Validator;
 
-import { report } from 'process';
+import { rawListeners, report } from 'process';
 import { RDFArrayRemove } from 'rdflib/lib/utils-js';
 
 const STRICT_NQUADS_REGEX = /(<\S+?>|_:\S+)?\s+(<\S+?>)\s+(<\S+?>|_:\S+?|(".*"(^^<.+>)?))\s+(<\S+?>|_:\S+?)\s*\.(\s*#.+)?/g;
@@ -61,19 +61,37 @@ function suggestContextPrefixes(json: any, rdfSerializer: any) {
 	}
   }
 
+async function JSONLDtoNQuads(data: string){
+	// Convert JSON-LD to NQuads through jsonld.js as it is much better at parsing JSON-LD than rdflib.js
+	const data_object = JSON.parse(data);
+
+	return jsonld.toRDF(data_object, {format: 'application/n-quads'});
+}
+
+
 
 // Load the RDF contained in the string into a triple store and return resolved Promise
 function loadRDF(data: string, rdfStore: $rdf.Store, mediaType: string) {
 	if(mediaType == undefined) {
 		mediaType = "application/ld+json";
 	}
-  
+
 	return new Promise<$rdf.Store>((resolve, reject) => {
 		try {
-			$rdf.parse(data, rdfStore, "https://example.com/test/", mediaType, function () {
-				vscode.window.showInformationMessage("Successfully parsed: Statements in the graph: " + rdfStore.length);
-				resolve(rdfStore);
+
+			if (mediaType == "application/ld+json") {
+				JSONLDtoNQuads(data)
+					.then(nquads => $rdf.parse(nquads, rdfStore, "https://example.com/test/", "application/n-quads", function () {
+						vscode.window.showInformationMessage("Successfully parsed: Statements in the graph: " + rdfStore.length);
+						resolve(rdfStore);
+					}));
+			} else {
+				$rdf.parse(data, rdfStore, "https://example.com/test/", mediaType, function () {
+					vscode.window.showInformationMessage("Successfully parsed: Statements in the graph: " + rdfStore.length);
+					resolve(rdfStore);
 			});
+			}
+
 		} catch (err:any) {
 			vscode.window.showErrorMessage(`Failed to load data into triplestore as ${mediaType}!`, err);
 			reject(err);
@@ -312,7 +330,7 @@ async function updateGraphView(document:vscode.TextDocument, extensionUri: vscod
 			// Create and show a new webview
 			const panel = vscode.window.createWebviewPanel(
 				'linked-data', // Identifies the type of the webview. Used internally
-				'JSON-LD Viewer: '+documentName, // Title of the panel displayed to the user
+				'Graph: '+documentName, // Title of the panel displayed to the user
 				vscode.ViewColumn.Two, // Editor column to show the new webview panel in.
 				{
 					// Enable scripts in the webview
@@ -408,7 +426,7 @@ async function getJSONwithEmbeddedContext(json_document: vscode.TextDocument) {
 		}
 	} catch (e: any) {
 		vscode.window.showErrorMessage(e.message);
-		console.log("Could not load context from file, perhaps it's not a file :-)");
+		console.log("Could not load context from files");
 	}
 	return json_object;
 }
@@ -419,18 +437,8 @@ async function getJSONwithEmbeddedContext(json_document: vscode.TextDocument) {
 // your extension is activated the very first time the command is executed
 export function activate(context: vscode.ExtensionContext) {
 	
-	// Use the console to output diagnostic information (console.log) and errors (console.error)
-	// This line of code will only be executed once when your extension is activated
 	console.log('The extension "linked-data" is now active!');
 
-	// The command has been defined in the package.json file
-	// Now provide the implementation of the command with registerCommand
-	// The commandId parameter must match the command field in package.json
-	// let disposable = vscode.commands.registerCommand('json-ld-viewer.helloWorld', () => {
-	// 	// The code you place here will be executed every time your command is executed
-	// 	// Display a message box to the user
-	// 	vscode.window.showInformationMessage('Hello World from JSON-LD Viewer!');
-	// });
 
 	let disposableViewer = vscode.commands.registerCommand('linked-data.view', async () => {
 		const editor = vscode.window.activeTextEditor;
