@@ -6,9 +6,13 @@ import * as $rdf from 'rdflib';
 import { parse } from 'yaml';
 const jsonld = require('jsonld');
 const ShaclValidator = require('schemarama/shaclValidator').Validator;
+const slugify = require('slugify');
 
 import { rawListeners, report } from 'process';
 import { RDFArrayRemove } from 'rdflib/lib/utils-js';
+import { GraphType } from 'rdflib/lib/types';
+import { DefaultGraph } from 'rdflib/lib/tf-types';
+import { isSubject } from 'rdflib';
 
 const STRICT_NQUADS_REGEX = /(<\S+?>|_:\S+)?\s+(<\S+?>)\s+(<\S+?>|_:\S+?|(".*"(^^<.+>)?))\s+(<\S+?>|_:\S+?)\s*\.(\s*#.+)?/g;
 
@@ -112,7 +116,8 @@ function serializeRDF(rdfStore: $rdf.Store, mediaType: string) {
 				}
 				resolve(result);
 			});
-		} catch (err) {
+		} catch (err: any) {
+			vscode.window.showErrorMessage(`Failed to serialize store to ${mediaType}!`, err);
 			console.log(`Failed to serialize store to ${mediaType}!`);
 			reject(err);
 		}
@@ -139,7 +144,7 @@ async function runQuery(query: string, documentText: string, mediaType: string):
 
 
 
-async function getView(documentText: string, mediaType: string): Promise<GVResponse> {
+async function getView(documentText: string, mediaType: string, showTypes: boolean): Promise<GVResponse> {
 	var store = $rdf.graph();
 	var serializer = $rdf.Serializer(store);
 
@@ -149,7 +154,7 @@ async function getView(documentText: string, mediaType: string): Promise<GVRespo
 	
 	var result:GVResponse = {status: false, message: "initialized", mediaType: "unknown"};
 	await loadRDF(documentText, store, mediaType).then((store: $rdf.Store) => {
-		const d3graph = buildGraph(store, serializer);
+		const d3graph = buildD3Graph(store, serializer, showTypes);
 		result = {status: true, message: d3graph, mediaType: ""}; 
 	}).catch((reason) => {
 		result = {status: false, message: reason, mediaType: ""};
@@ -181,17 +186,26 @@ async function toSerialization(documentText: string, fromMediaType: string, toMe
 	return result;
 }
 
+class Attribute {
+	property: string = "";
+	value: string = ""
+}
+
 class Node {
 	id: string = "";
 	name: string = "";
 	uri: string = "";
-	attributes = [];
-	type = [];
+	group: string= "";
+	attributes: Array<Attribute> = [];
+	type: Array<string> = [];
 }
 
 
-function buildGraph(store: $rdf.Store, serializer: any): {} {
+
+
+function buildD3Graph(store: $rdf.Store, serializer: any, showTypes: boolean): {} {
 	const RDF_TYPE: $rdf.NamedNode = $rdf.sym("http://www.w3.org/1999/02/22-rdf-syntax-ns#type");
+	const RDFS_SUBCLASSOF: $rdf.NamedNode = $rdf.sym("http://www.w3.org/2000/01/rdf-schema#subClassOf");
 
 	var nodesObject: Map<string,Node> = new Map();
 	var links: any = [];
@@ -200,6 +214,7 @@ function buildGraph(store: $rdf.Store, serializer: any): {} {
 	const statements: Array<$rdf.Statement> = store.statementsMatching(null, null, null, null);
 
 	for(let s of statements) {
+		// local function
 		processStatement(s);
 	}
 
@@ -212,43 +227,60 @@ function buildGraph(store: $rdf.Store, serializer: any): {} {
 		links: links
 	}
 
-	function getOrCreateNode(qname: string, uri: string, nodesObject: Map<string,Node> ): any {
+	function getOrCreateNode(qname: string, name: string, uri: string, group: string, nodesObject: Map<string,Node> ): any {
 		let node: Node = new Node();
 		
 		let safeURI = uri.replace("<","&lt;").replace(">","&gt;");
 	
 		if (!nodesObject.has(qname)) {
-			// Add the subject node if it does not already exist
+			// Add the resource node if it does not already exist
 			node.id = qname;
-			node.name = qname;
+			node.name = name;
 			node.uri = safeURI;
+			node.group = group;
+			node.type = [];
+			node.attributes = [];
+			// Add it to the nodes object just to be sure (so that it's there even if it's not updated later)
+			nodesObject.set(qname, node);
 		} else {
 			// Otherwise, retrieve it so that we can update it (we know it's never undefined)
 			node = nodesObject.get(qname) as Node;
 			if (node == undefined) {
-				throw "Subject is undefined, but this is impossible.";
+				throw "Resource is undefined, but this is impossible.";
 			}
 		}
 		return node;
 	}
 
 	function processStatement(s:$rdf.Statement) {
+
+		// Skip type triples if showTypes is false
+		if (!showTypes && (s.predicate.value == RDF_TYPE.value)) {
+			return
+		}
+
 		let s_qname: string = buildId(s.subject, serializer);
 		let p_qname: string = buildId(s.predicate, serializer);
 		let o_qname: string = buildId(s.object, serializer);
-		let g_qname: string = s.graph.toString();
 
+		let g_qname: string = buildId(s.graph, serializer);
+
+		// Always add the graph as node if it is not the DefaultGraph.
+		if (g_qname != "DefaultGraph") {
+			let graph = getOrCreateNode(g_qname, g_qname, s.graph.toString(), g_qname, nodesObject);
+			// Add the "@graph" type to the types for this node.
+			if (!graph.type.includes('@graph')) {
+				graph.type.push("@graph");
+			}
+		}
 
 		if ($rdf.isNamedNode(s.object)||$rdf.isBlankNode(s.object)) {
-			let subject = getOrCreateNode(s_qname, s.subject.toNT(), nodesObject);
+			// Get the subject node, or create one if it does not already exist.
+			let subject = getOrCreateNode(s_qname, s_qname, s.subject.toNT(), s_qname, nodesObject);
 			// Add type to node as attribute (rather than as edge to the graph)
 			if (s.predicate.equals(RDF_TYPE)) {
 
 				let types = subject.type as Array<string>;
-
-				if (types == undefined) {
-					types = new Array<string>();
-				}
 
 				if (!types.includes(o_qname)) {
 					types.push(o_qname);
@@ -258,7 +290,8 @@ function buildGraph(store: $rdf.Store, serializer: any): {} {
 			// update the dictionary of nodes
 			nodesObject.set(s_qname, subject);
 
-			let object = getOrCreateNode(o_qname, s.object.toString(), nodesObject);
+			// Get or create the object node; in its own group (not a literal)
+			let object = getOrCreateNode(o_qname, o_qname, s.object.toNT(), o_qname, nodesObject);
 			nodesObject.set(o_qname, object);
 
 
@@ -266,37 +299,66 @@ function buildGraph(store: $rdf.Store, serializer: any): {} {
 			let link = {
 				source: s_qname,
 				target: o_qname,
-				name: p_qname,
+				id: safeJSIdentifier(s_qname+p_qname+o_qname),
+				name: p_qname, 
 				graph: g_qname
 			};
 
 			links.push(link);
 		} else if ($rdf.isLiteral(s.object)) {
 			// Get the subject, and its attributes
-			let subject = getOrCreateNode(s_qname, s.subject.toString(), nodesObject);
-
+			let subject = getOrCreateNode(s_qname, s_qname, s.subject.toNT(), s_qname, nodesObject);
 			let attributes = subject.attributes;
 
-			if (attributes == undefined) {
-				throw "Attributes are undefined, that should not be possible";
+			// If the attribute is not already defined on the node
+			if (attributes.find((x: { property: string; value: string; }) => x.property == p_qname && x.value == o_qname) == undefined) {
+			
+				if (attributes == undefined) {
+					throw "Attributes are undefined, that should not be possible";
+				}
+				// Create a new attribute/value pair
+				let attr:Attribute = {
+					"property": p_qname,
+					"value": o_qname
+				};
+				// Add it to the attributes, the subject node, and update the nodes object.
+				attributes.push(attr);
+				subject.attributes = attributes;
+
+				nodesObject.set(s_qname, subject);
+
+				// Get or create the object node; in the group of the subject.
+				let literal_value_node_id = safeJSIdentifier(s_qname+p_qname+o_qname);
+
+				let object = getOrCreateNode(literal_value_node_id, s.object.toString(), s.object.toString(), s_qname, nodesObject);
+				// Set the object type to Literal
+				object.type = ["Literal"];
+				nodesObject.set(literal_value_node_id, object);
+
+
+				// Add the link between subject and object
+				let link = {
+					source: s_qname,
+					target: literal_value_node_id,
+					id: literal_value_node_id, // Equivalent to subject + predicate + object
+					name: p_qname,
+					graph: g_qname
+				};
+
+				links.push(link);
 			}
-
-			// Create a new attribute/value pair
-			let attr = {
-				"property": p_qname,
-				"value": o_qname
-			};
-
-			// Add it to the attributes, the subject node, and update the nodes object.
-			attributes.push(attr);
-			subject.attributes = attributes;
-			nodesObject.set(s_qname, subject);
 		}
 	}
 }
 
-function buildId(term: $rdf.Node, serializer: any){
-	if ($rdf.isNamedNode(term) || $rdf.isBlankNode(term)){
+function safeJSIdentifier(value:string) {
+	return `id_${value}`.replace(/\W/g, '_').toLowerCase();
+}
+
+function buildId(term: $rdf.Node|GraphType|DefaultGraph, serializer: any){
+	if ($rdf.isGraph(term) && term.toString() == "DefaultGraph") {
+		return term.toString()
+	} else if ($rdf.isNamedNode(term) || $rdf.isBlankNode(term) || $rdf.isGraph(term)){
 		if(term.value.startsWith('_')){
 			return term.value;
 		}
@@ -324,8 +386,15 @@ function getNonce() {
 async function updateGraphView(document:vscode.TextDocument, extensionUri: vscode.Uri) {
 	let { data, fromMediaType } = await getDataAndMediaType(document);
 	const documentName = document.fileName;
+
+	let config = vscode.workspace.getConfiguration("linked-data");
+	let showTypes = config.get('showTypes');
+
+	if (!showTypes) {
+		vscode.window.showInformationMessage("Hiding nodes and edges for types");
+	} 
 	
-	await getView(data, fromMediaType).then((result) => {
+	await getView(data, fromMediaType, showTypes as boolean).then((result) => {
 		if(result.status){
 			// Create and show a new webview
 			const panel = vscode.window.createWebviewPanel(
@@ -364,7 +433,10 @@ async function updateGraphView(document:vscode.TextDocument, extensionUri: vscod
 					<script id="data">${JSON.stringify(result.message)}</script>
 				</head>
 				<body>
-					<svg id="graph" viewBox="0 0 1000 1000" preserveAspectRatio="xMidYMin slice"></svg>
+					<div>
+						<div id="tooltip"></div>
+						<svg id="graph" viewBox="0 0 1000 1000" preserveAspectRatio="xMidYMin slice"></svg>
+					</div>
 				</body>
 			</html>`;
 

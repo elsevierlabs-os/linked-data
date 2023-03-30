@@ -1,5 +1,5 @@
 
-  .links path {
+  /* .links path {
     stroke: #444;
     stroke-opacity: 0.6;
   }
@@ -21,8 +21,8 @@
 
   text {
     font-family: "Elsevier Display", sans-serif;
-    /* font-size: 10px; */
-  }
+    font-size: 10px;
+  } 
 
   .d3-tip {
     line-height: 1;
@@ -31,7 +31,7 @@
     color: #fff;
     border-radius: 4px;
     font-family: "Elsevier Display", sans-serif;
-    /* font-size: 10px; */
+
   }
 
   table {
@@ -46,9 +46,57 @@
   td {color: lightgray;}
 
   svg {
-    /* background: #f6f2f0; */
     width: 100%; 
     padding-bottom: 92%; 
     height: 1px; 
     overflow: visible
-  }
+  } */
+
+
+
+  /* svg {
+    border: 1px solid #ccc;
+  } */
+
+
+svg {
+  width: 100%; 
+  padding-bottom: 92%; 
+  height: 1px; 
+  overflow: visible
+}
+
+body {
+  font: 10px sans-serif;
+}
+circle.node {
+  fill: lightsteelblue;
+  stroke: #555;
+  stroke-width: 3px;
+}
+circle.leaf {
+  stroke: #fff;
+  stroke-width: 1.5px;
+}
+path.hull {
+  fill: lightsteelblue;
+  fill-opacity: 0.3;
+}
+
+
+div.tooltip {
+    z-index: -1;
+    position: absolute;
+    display: block;
+}
+
+/* table {
+  max-width: 500px;
+  vertical-align: top;
+}
+
+th, td {
+  vertical-align: top;
+}
+
+td {color: lightgray;} */
