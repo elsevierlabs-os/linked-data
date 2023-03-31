@@ -485,7 +485,9 @@ async function getJSONwithEmbeddedContext(json_document: vscode.TextDocument) {
 			let expandedContextArray:any[] = [];
 			for (let c in context) {
 
-				if (typeof context[c] == 'string') {
+				// If the context is a string, and does not start with http, it is likely to be a file.
+				// Let's try to load it.
+				if (typeof context[c] == 'string' && !context[c].toLowerCase().startsWith("http")) {
 					const json_context_path = path.join(dirname, context[c]);
 					const json_context_doc = await vscode.workspace.openTextDocument(json_context_path);
 					expandedContextArray.push(JSON.parse(json_context_doc.getText()));
