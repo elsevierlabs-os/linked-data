@@ -879,7 +879,7 @@ export function activate(context: vscode.ExtensionContext) {
 
 				// Build a CSV file
 				let csv:any[] = data;
-				csv.unshift(variables)
+				// csv.unshift(variables)
 				let csvstring:string = csv.map(function(row){
 					let rowstring:string = row.map(function(d:string[]){
 						return JSON.stringify(d);
@@ -927,7 +927,7 @@ export function activate(context: vscode.ExtensionContext) {
 					    <h3>Query</h3>
 					    <div id="query">
 							<pre>
-${query}
+${escapeHTML(query)}
 							</pre>
 						</div>
 						<h3>Results</h3>
@@ -939,7 +939,7 @@ ${query}
 						columns: ${JSON.stringify(variables)},
 						data: ${JSON.stringify(data)},
 						sort: true,
-						pagination: true,
+						pagination: {limit: 50},
 						search: true,
 						resizable: true
 					  }).render(document.getElementById("wrapper"));
@@ -1039,6 +1039,20 @@ async function validate(document: vscode.TextDocument, shaclDocument: vscode.Tex
 	let report = await validator.validate(data, {baseUrl: "http://example.org/test"});
 	return(report);
   }
+
+
+function escapeHTML(html:string):string {
+    var fn=function(tag:string) {
+        var charsToReplace:any = {
+            '&': '&amp;',
+            '<': '&lt;',
+            '>': '&gt;',
+            '"': '&#34;'
+        };
+        return charsToReplace[tag] || tag;
+    }
+    return html.replace(/[&<>"]/g, fn);
+}
 
 
 // this method is called when your extension is deactivated
