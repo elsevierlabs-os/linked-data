@@ -84,6 +84,7 @@ function loadRDF(data: string, rdfStore: $rdf.Store, mediaType: string) {
 		try {
 
 			if (mediaType == "application/ld+json") {
+				console.log("Converting to JSON-LD to NQuads to preserve named graphs");
 				JSONLDtoNQuads(data)
 					.then(nquads => $rdf.parse(nquads, rdfStore, "https://example.com/test/", "application/n-quads", function () {
 						vscode.window.showInformationMessage("Successfully parsed: Statements in the graph: " + rdfStore.length);
@@ -253,12 +254,6 @@ function buildD3Graph(store: $rdf.Store, serializer: any, showTypes: boolean): {
 	}
 
 	function processStatement(s:$rdf.Statement) {
-
-		// Skip type triples if showTypes is false
-		if (!showTypes && (s.predicate.value == RDF_TYPE.value)) {
-			return
-		}
-
 		let s_qname: string = buildId(s.subject, serializer);
 		let p_qname: string = buildId(s.predicate, serializer);
 		let o_qname: string = buildId(s.object, serializer);
@@ -289,6 +284,12 @@ function buildD3Graph(store: $rdf.Store, serializer: any, showTypes: boolean): {
 			}
 			// update the dictionary of nodes
 			nodesObject.set(s_qname, subject);
+
+			// Skip type triples if showTypes is false
+			if (!showTypes && (s.predicate.value == RDF_TYPE.value)) {
+				return
+			} 
+			// Else, we create a node for the object, and add the edge to the graph
 
 			// Get or create the object node; in its own group (not a literal)
 			let object = getOrCreateNode(o_qname, o_qname, s.object.toNT(), o_qname, nodesObject);
