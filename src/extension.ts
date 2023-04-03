@@ -130,11 +130,21 @@ function serializeRDF(rdfStore: $rdf.Store, mediaType: string) {
 async function runQuery(query: string, documentText: string, mediaType: string): Promise<any[]> {
 	var store = $rdf.graph();
 	
-	var result:any[] = []
+	var temp_result:any[] = [];
+	var result:any[] = [];
 	await loadRDF(documentText, store, mediaType).then((store: $rdf.Store) => {
 		const queryObject = $rdf.SPARQLToQuery(query, false, store) as $rdf.Query;
+		console.log(queryObject);
+		temp_result = store.querySync(queryObject)
 
-		result = store.querySync(queryObject)
+		const vars = new Set(queryObject.vars.map(v => `?${v.value}`));
+		
+		for (const res of temp_result) {
+		  // Only return explicitly requested variables
+		  // (workaround for https://github.com/linkeddata/rdflib.js/issues/393)
+		  result.push(Object.fromEntries(Object.entries(res).filter(([v]) => vars.has(v))));
+		}
+
 	}).catch((reason) => {
 		return [reason];
 	}).finally(() => {
@@ -873,7 +883,12 @@ export function activate(context: vscode.ExtensionContext) {
 					for(let r of result){
 						let stringresult = [];
 						for(let v of variables){
-							stringresult.push(r[v].value);
+							if (r[v] != undefined) {
+								stringresult.push(r[v].value);
+							} else {
+								stringresult.push("");
+							}
+							
 						}
 						data.push(stringresult);
 					}
