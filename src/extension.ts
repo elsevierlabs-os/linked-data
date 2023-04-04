@@ -14,6 +14,11 @@ import { GraphType } from 'rdflib/lib/types';
 import { DefaultGraph } from 'rdflib/lib/tf-types';
 import { isSubject } from 'rdflib';
 
+// New Oxigraph JS RDF library (built from rust)
+
+import oxigraph from 'oxigraph/node.js';
+// const oxigraph = require('oxigraph');
+
 const STRICT_NQUADS_REGEX = /(<\S+?>|_:\S+)?\s+(<\S+?>)\s+(<\S+?>|_:\S+?|(".*"(^^<.+>)?))\s+(<\S+?>|_:\S+?)\s*\.(\s*#.+)?/g;
 
 interface GVResponse {
@@ -66,7 +71,7 @@ function suggestContextPrefixes(json: any, rdfSerializer: any) {
   }
 
 async function JSONLDtoNQuads(data: string){
-	// Convert JSON-LD to NQuads through jsonld.js as it is much better at parsing JSON-LD than rdflib.js
+	// Convert JSON-LD to NQuads through jsonld.js as it is much better at parsing JSON-LD than rdflib.js, and oxigraph cannot parse it at all
 	const data_object = JSON.parse(data);
 
 	return jsonld.toRDF(data_object, {format: 'application/n-quads'});
@@ -75,7 +80,7 @@ async function JSONLDtoNQuads(data: string){
 
 
 // Load the RDF contained in the string into a triple store and return resolved Promise
-function loadRDF(data: string, rdfStore: $rdf.Store, mediaType: string) {
+function loadRDFrdflib(data: string, rdfStore: $rdf.Store, mediaType: string) {
 	if(mediaType == undefined) {
 		mediaType = "application/ld+json";
 	}
@@ -127,29 +132,50 @@ function serializeRDF(rdfStore: $rdf.Store, mediaType: string) {
 }
 
 
-async function runQuery(query: string, documentText: string, mediaType: string): Promise<any[]> {
-	var store = $rdf.graph();
-	
-	var temp_result:any[] = [];
-	var result:any[] = [];
-	await loadRDF(documentText, store, mediaType).then((store: $rdf.Store) => {
-		const queryObject = $rdf.SPARQLToQuery(query, false, store) as $rdf.Query;
-		console.log(queryObject);
-		temp_result = store.querySync(queryObject)
+function loadRDFOxigraph(data: string, rdfStore: oxigraph.Store, mediaType: string) {
+	if(mediaType == undefined) {
+		mediaType = "application/ld+json";
+	}
 
-		const vars = new Set(queryObject.vars.map(v => `?${v.value}`));
-		
-		for (const res of temp_result) {
-		  // Only return explicitly requested variables
-		  // (workaround for https://github.com/linkeddata/rdflib.js/issues/393)
-		  result.push(Object.fromEntries(Object.entries(res).filter(([v]) => vars.has(v))));
+	return new Promise<oxigraph.Store>((resolve, reject) => {
+		try {
+
+			if (mediaType == "application/ld+json") {
+				console.log("Converting to JSON-LD to NQuads to preserve named graphs");
+				JSONLDtoNQuads(data)
+					.then(nquads => {
+						rdfStore.load(nquads, mediaType, undefined, undefined);
+						console.log(rdfStore);
+						vscode.window.showInformationMessage("Successfully parsed: Statements in the graph: " + rdfStore.size);
+						resolve(rdfStore);
+					});
+			} else {
+				rdfStore.load(data, mediaType, undefined, undefined);
+				console.log(rdfStore);
+				vscode.window.showInformationMessage("Successfully parsed: Statements in the graph: " + rdfStore.size);
+				resolve(rdfStore);
+			}
+		} catch (err:any) {
+			vscode.window.showErrorMessage(`Failed to load data into triplestore as ${mediaType}!`, err);
+			reject(err);
 		}
+	});
 
+}
+
+
+async function runQuery(query: string, documentText: string, mediaType: string): Promise<any[]> {
+	var store = new oxigraph.Store();
+	var result:any[] = [];
+
+	await loadRDFOxigraph(documentText, store, mediaType).then((store: oxigraph.Store) => {
+		result = store.query(query);
 	}).catch((reason) => {
 		return [reason];
 	}).finally(() => {
 		console.log("Finally...");
 	});
+
 	return result;
 }
 
@@ -164,7 +190,7 @@ async function getView(documentText: string, mediaType: string, showTypes: boole
 	}
 	
 	var result:GVResponse = {status: false, message: "initialized", mediaType: "unknown"};
-	await loadRDF(documentText, store, mediaType).then((store: $rdf.Store) => {
+	await loadRDFrdflib(documentText, store, mediaType).then((store: $rdf.Store) => {
 		const d3graph = buildD3Graph(store, serializer, showTypes);
 		result = {status: true, message: d3graph, mediaType: ""}; 
 	}).catch((reason) => {
@@ -175,6 +201,30 @@ async function getView(documentText: string, mediaType: string, showTypes: boole
 	return result;
 }
 
+
+// async function toSerializationOxigraphPARTIAL(documentText: string, fromMediaType: string, toMediaType: string): Promise<GVResponse> {
+
+// 	// only partially developed
+// 	var store = new oxigraph.Store();
+
+// 	store = await loadRDFOxigraph(documentText, store, fromMediaType);
+
+// 	try {
+// 		if (toMediaType == "application/ld+json") {
+
+// 		} else {
+// 			var data = store.dump(toMediaType, undefined);
+
+// 			return {status: true, message: data, mediaType: toMediaType}
+// 		}
+// 	} catch (error:any) {
+// 		vscode.window.showErrorMessage(`Something went wrong while trying to parse from ${fromMediaType} to ${toMediaType}`);
+// 		return {status: false, message: error.message, mediaType: ""};
+// 	}
+	
+// }
+
+
 async function toSerialization(documentText: string, fromMediaType: string, toMediaType: string): Promise<GVResponse> {
 	var store = $rdf.graph();
 	var serializer = $rdf.Serializer(store);
@@ -184,7 +234,7 @@ async function toSerialization(documentText: string, fromMediaType: string, toMe
 	}
 	
 	var result:GVResponse = {status: false, message: "initialized", mediaType: "unknown"};
-	await loadRDF(documentText, store, fromMediaType).then((store: $rdf.Store) => {
+	await loadRDFrdflib(documentText, store, fromMediaType).then((store: $rdf.Store) => {
 		return serializeRDF(store, toMediaType);
 	}).then((data) => {
 		result = {status:true, message: data, mediaType: toMediaType};
@@ -867,108 +917,117 @@ export function activate(context: vscode.ExtensionContext) {
 				// Get the data to query
 				const dataDocument = await vscode.workspace.openTextDocument(dataFileURI);
 
-				let documentInfo  = await getDataAndMediaType(dataDocument);
-	
+				let documentInfo  = await getDataAndMediaType(dataDocument);	
 				const result = await runQuery(query, documentInfo.data, documentInfo.fromMediaType);
 
-				var variables:string[] = [];
-				var data = [];
-
-				if (result.length > 0) {
-					// Iterate over the keys of the first result to obtain the array of variables.
-					for(let v in result[0]){
-						variables.push(v);
-					}
-
-					for(let r of result){
-						let stringresult = [];
-						for(let v of variables){
-							if (r[v] != undefined) {
-								stringresult.push(r[v].value);
-							} else {
-								stringresult.push("");
-							}
-							
-						}
-						data.push(stringresult);
-					}
+				if (result[0] instanceof oxigraph.Quad) {
+					// CONSTRUCT query result
+					const filteredStore = new oxigraph.Store(result);
+					const serializedStore = filteredStore.dump("application/n-quads", undefined);
 					
-				}
+					let doc = await vscode.workspace.openTextDocument({content: serializedStore, language: "turtle"});
+					await vscode.window.showTextDocument(doc, {preview: false});
+				} else {
+					// SELECT query result
+					var variables:string[] = [];
+					var data = [];
 
-				// Build a CSV file
-				let csv:any[] = data;
-				// csv.unshift(variables)
-				let csvstring:string = csv.map(function(row){
-					let rowstring:string = row.map(function(d:string[]){
-						return JSON.stringify(d);
-					}).join(";");
-					return rowstring;
-				}).join('\n');
-				let doc = await vscode.workspace.openTextDocument({content: csvstring, language: "csv"});
-				await vscode.window.showTextDocument(doc, vscode.ViewColumn.Two);
-
-
-				// Build a webview with the results
-				const panel = vscode.window.createWebviewPanel(
-					'linked-data', // Identifies the type of the webview. Used internally
-					'SPARQL Results: '+documentName, // Title of the panel displayed to the user
-					vscode.ViewColumn.Two, // Editor column to show the new webview panel in.
-					{
-						// Enable scripts in the webview
-						enableScripts: true
+					if (result.length > 0) {
+						// Iterate over the keys of the first result to obtain the array of variables.
+						for(let v of result[0].keys()){
+							variables.push(v);
+						}
+						for(let r of result){
+							console.log(r);
+							let stringresult = [];
+							for(let v of r.keys()){ // variables are key in the map
+								console.log(v);
+								console.log(r.get(v).value);
+								if (r.get(v).value != undefined) {
+									stringresult.push(r.get(v).value);
+								} else {
+									stringresult.push("");
+								}
+								
+							}
+							data.push(stringresult);
+						}
+						
 					}
-				);
-				
-				// Produce the required script tags to be put in the HTML head.
-				const nonce = getNonce();
-				
-				var html:string = `
-				<!DOCTYPE html>
-				  <html lang="en">
-					<head>
-						<meta charset="UTF-8">
-						<meta name="viewport" content="width=device-width, initial-scale=1.0">
-						<title>SPARQL Results</title>
-						<!--
-						Use a content security policy to only allow loading images from https or from our extension directory,
-						and only allow scripts that have a specific nonce.
-						-->
-						<meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src ${panel.webview.cspSource} 'unsafe-inline' https:; img-src ${panel.webview.cspSource} https: data:; script-src 'nonce-${nonce}' 'unsafe-inline'; font-src ${panel.webview.cspSource}; connect-src https: http: ;">
-						
-	
-						
-						<link href="https://unpkg.com/gridjs/dist/theme/mermaid.min.css" rel="stylesheet" />
-					</head>
-					<body>
-					<h2>Query Results</h2>
-					  <div id="container" style="padding: 1em; box-sizing: border-box; max-width: 100%; overflow: scroll; align-items: center; justify-content: center;">
-					    <h3>Query</h3>
-					    <div id="query">
-							<pre>
-${escapeHTML(query)}
-							</pre>
+
+					// Build a CSV file
+					let csv:any[] = data;
+					// csv.unshift(variables)
+					let csvstring:string = csv.map(function(row){
+						let rowstring:string = row.map(function(d:string[]){
+							return JSON.stringify(d);
+						}).join(";");
+						return rowstring;
+					}).join('\n');
+					let doc = await vscode.workspace.openTextDocument({content: csvstring, language: "csv"});
+					await vscode.window.showTextDocument(doc, vscode.ViewColumn.Two);
+
+
+					// Build a webview with the results
+					const panel = vscode.window.createWebviewPanel(
+						'linked-data', // Identifies the type of the webview. Used internally
+						'SPARQL Results: '+documentName, // Title of the panel displayed to the user
+						vscode.ViewColumn.Two, // Editor column to show the new webview panel in.
+						{
+							// Enable scripts in the webview
+							enableScripts: true
+						}
+					);
+					
+					// Produce the required script tags to be put in the HTML head.
+					const nonce = getNonce();
+					
+					var html:string = `
+					<!DOCTYPE html>
+					<html lang="en">
+						<head>
+							<meta charset="UTF-8">
+							<meta name="viewport" content="width=device-width, initial-scale=1.0">
+							<title>SPARQL Results</title>
+							<!--
+							Use a content security policy to only allow loading images from https or from our extension directory,
+							and only allow scripts that have a specific nonce.
+							-->
+							<meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src ${panel.webview.cspSource} 'unsafe-inline' https:; img-src ${panel.webview.cspSource} https: data:; script-src 'nonce-${nonce}' 'unsafe-inline'; font-src ${panel.webview.cspSource}; connect-src https: http: ;">
+							
+		
+							
+							<link href="https://unpkg.com/gridjs/dist/theme/mermaid.min.css" rel="stylesheet" />
+						</head>
+						<body>
+						<h2>Query Results</h2>
+						<div id="container" style="padding: 1em; box-sizing: border-box; max-width: 100%; overflow: scroll; align-items: center; justify-content: center;">
+							<h3>Query</h3>
+							<div id="query">
+								<pre>
+	${escapeHTML(query)}
+								</pre>
+							</div>
+							<h3>Results</h3>
+							<div id="wrapper"></div>
 						</div>
-						<h3>Results</h3>
-					  	<div id="wrapper"></div>
-					  </div>
-					  <script nonce="${nonce}" src="https://unpkg.com/gridjs/dist/gridjs.umd.js"></script>
-					  <script nonce="${nonce}" >
-					  new gridjs.Grid({
-						columns: ${JSON.stringify(variables)},
-						data: ${JSON.stringify(data)},
-						sort: true,
-						pagination: {limit: 50},
-						search: true,
-						resizable: true
-					  }).render(document.getElementById("wrapper"));
-					  </script>
-					</body>
-				</html>`;
-	
-				panel.webview.html = html;
-				return
-				
-				
+						<script nonce="${nonce}" src="https://unpkg.com/gridjs/dist/gridjs.umd.js"></script>
+						<script nonce="${nonce}" >
+						new gridjs.Grid({
+							columns: ${JSON.stringify(variables)},
+							data: ${JSON.stringify(data)},
+							sort: true,
+							pagination: {limit: 50},
+							search: true,
+							resizable: true
+						}).render(document.getElementById("wrapper"));
+						</script>
+						</body>
+					</html>`;
+		
+					panel.webview.html = html;
+					return
+				}
 			} catch(e: any) {
 				vscode.window.showErrorMessage(e.message);
 			}
@@ -1046,10 +1105,10 @@ async function validate(document: vscode.TextDocument, shaclDocument: vscode.Tex
 	let store = new $rdf.Store();
 	let shapesStore = new $rdf.Store();
 
-	await loadRDF(doc.data, store, doc.fromMediaType);
+	await loadRDFrdflib(doc.data, store, doc.fromMediaType);
 	let data = await serializeRDF(store, 'application/ld+json');
 
-	await loadRDF(shapes.data, shapesStore, shapes.fromMediaType);
+	await loadRDFrdflib(shapes.data, shapesStore, shapes.fromMediaType);
 	let shapesData = await serializeRDF(shapesStore, 'text/turtle');
 
 
