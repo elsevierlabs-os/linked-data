@@ -245,6 +245,7 @@
     "lodash": "^4.17.21",
     "n3": "^1.16.2",
     "node-fetch": "^2.6.1",
+    "oxigraph": "^0.3.14",
     "path": "^0.12.7",
     "rdf-validate-shacl": "^0.4.4",
     "rdflib": "github:RinkeHoekstra/rdflib.js#alt",
