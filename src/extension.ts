@@ -6,9 +6,18 @@ import * as $rdf from 'rdflib';
 import { parse } from 'yaml';
 const jsonld = require('jsonld');
 const ShaclValidator = require('schemarama/shaclValidator').Validator;
+const slugify = require('slugify');
 
 import { rawListeners, report } from 'process';
 import { RDFArrayRemove } from 'rdflib/lib/utils-js';
+import { GraphType } from 'rdflib/lib/types';
+import { DefaultGraph } from 'rdflib/lib/tf-types';
+import { isSubject } from 'rdflib';
+
+// New Oxigraph JS RDF library (built from rust)
+
+import oxigraph from 'oxigraph/node.js';
+// const oxigraph = require('oxigraph');
 
 const STRICT_NQUADS_REGEX = /(<\S+?>|_:\S+)?\s+(<\S+?>)\s+(<\S+?>|_:\S+?|(".*"(^^<.+>)?))\s+(<\S+?>|_:\S+?)\s*\.(\s*#.+)?/g;
 
@@ -62,7 +71,7 @@ function suggestContextPrefixes(json: any, rdfSerializer: any) {
   }
 
 async function JSONLDtoNQuads(data: string){
-	// Convert JSON-LD to NQuads through jsonld.js as it is much better at parsing JSON-LD than rdflib.js
+	// Convert JSON-LD to NQuads through jsonld.js as it is much better at parsing JSON-LD than rdflib.js, and oxigraph cannot parse it at all
 	const data_object = JSON.parse(data);
 
 	return jsonld.toRDF(data_object, {format: 'application/n-quads'});
@@ -71,7 +80,7 @@ async function JSONLDtoNQuads(data: string){
 
 
 // Load the RDF contained in the string into a triple store and return resolved Promise
-function loadRDF(data: string, rdfStore: $rdf.Store, mediaType: string) {
+function loadRDFrdflib(data: string, rdfStore: $rdf.Store, mediaType: string) {
 	if(mediaType == undefined) {
 		mediaType = "application/ld+json";
 	}
@@ -80,6 +89,7 @@ function loadRDF(data: string, rdfStore: $rdf.Store, mediaType: string) {
 		try {
 
 			if (mediaType == "application/ld+json") {
+				console.log("Converting to JSON-LD to NQuads to preserve named graphs");
 				JSONLDtoNQuads(data)
 					.then(nquads => $rdf.parse(nquads, rdfStore, "https://example.com/test/", "application/n-quads", function () {
 						vscode.window.showInformationMessage("Successfully parsed: Statements in the graph: " + rdfStore.length);
@@ -112,7 +122,8 @@ function serializeRDF(rdfStore: $rdf.Store, mediaType: string) {
 				}
 				resolve(result);
 			});
-		} catch (err) {
+		} catch (err: any) {
+			vscode.window.showErrorMessage(`Failed to serialize store to ${mediaType}!`, err);
 			console.log(`Failed to serialize store to ${mediaType}!`);
 			reject(err);
 		}
@@ -121,25 +132,56 @@ function serializeRDF(rdfStore: $rdf.Store, mediaType: string) {
 }
 
 
-async function runQuery(query: string, documentText: string, mediaType: string): Promise<any[]> {
-	var store = $rdf.graph();
-	
-	var result:any[] = []
-	await loadRDF(documentText, store, mediaType).then((store: $rdf.Store) => {
-		const queryObject = $rdf.SPARQLToQuery(query, false, store) as $rdf.Query;
+function loadRDFOxigraph(data: string, rdfStore: oxigraph.Store, mediaType: string) {
+	if(mediaType == undefined) {
+		mediaType = "application/ld+json";
+	}
 
-		result = store.querySync(queryObject)
+	return new Promise<oxigraph.Store>((resolve, reject) => {
+		try {
+
+			if (mediaType == "application/ld+json") {
+				console.log("Converting to JSON-LD to NQuads to preserve named graphs");
+				JSONLDtoNQuads(data)
+					.then(nquads => {
+						rdfStore.load(nquads, mediaType, undefined, undefined);
+						console.log(rdfStore);
+						vscode.window.showInformationMessage("Successfully parsed: Statements in the graph: " + rdfStore.size);
+						resolve(rdfStore);
+					});
+			} else {
+				rdfStore.load(data, mediaType, undefined, undefined);
+				console.log(rdfStore);
+				vscode.window.showInformationMessage("Successfully parsed: Statements in the graph: " + rdfStore.size);
+				resolve(rdfStore);
+			}
+		} catch (err:any) {
+			vscode.window.showErrorMessage(`Failed to load data into triplestore as ${mediaType}!`, err);
+			reject(err);
+		}
+	});
+
+}
+
+
+async function runQuery(query: string, documentText: string, mediaType: string): Promise<any[]> {
+	var store = new oxigraph.Store();
+	var result:any[] = [];
+
+	await loadRDFOxigraph(documentText, store, mediaType).then((store: oxigraph.Store) => {
+		result = store.query(query);
 	}).catch((reason) => {
 		return [reason];
 	}).finally(() => {
 		console.log("Finally...");
 	});
+
 	return result;
 }
 
 
 
-async function getView(documentText: string, mediaType: string): Promise<GVResponse> {
+async function getView(documentText: string, mediaType: string, showTypes: boolean): Promise<GVResponse> {
 	var store = $rdf.graph();
 	var serializer = $rdf.Serializer(store);
 
@@ -148,8 +190,8 @@ async function getView(documentText: string, mediaType: string): Promise<GVRespo
 	}
 	
 	var result:GVResponse = {status: false, message: "initialized", mediaType: "unknown"};
-	await loadRDF(documentText, store, mediaType).then((store: $rdf.Store) => {
-		const d3graph = buildGraph(store, serializer);
+	await loadRDFrdflib(documentText, store, mediaType).then((store: $rdf.Store) => {
+		const d3graph = buildD3Graph(store, serializer, showTypes);
 		result = {status: true, message: d3graph, mediaType: ""}; 
 	}).catch((reason) => {
 		result = {status: false, message: reason, mediaType: ""};
@@ -158,6 +200,30 @@ async function getView(documentText: string, mediaType: string): Promise<GVRespo
 	});
 	return result;
 }
+
+
+// async function toSerializationOxigraphPARTIAL(documentText: string, fromMediaType: string, toMediaType: string): Promise<GVResponse> {
+
+// 	// only partially developed
+// 	var store = new oxigraph.Store();
+
+// 	store = await loadRDFOxigraph(documentText, store, fromMediaType);
+
+// 	try {
+// 		if (toMediaType == "application/ld+json") {
+
+// 		} else {
+// 			var data = store.dump(toMediaType, undefined);
+
+// 			return {status: true, message: data, mediaType: toMediaType}
+// 		}
+// 	} catch (error:any) {
+// 		vscode.window.showErrorMessage(`Something went wrong while trying to parse from ${fromMediaType} to ${toMediaType}`);
+// 		return {status: false, message: error.message, mediaType: ""};
+// 	}
+	
+// }
+
 
 async function toSerialization(documentText: string, fromMediaType: string, toMediaType: string): Promise<GVResponse> {
 	var store = $rdf.graph();
@@ -168,7 +234,7 @@ async function toSerialization(documentText: string, fromMediaType: string, toMe
 	}
 	
 	var result:GVResponse = {status: false, message: "initialized", mediaType: "unknown"};
-	await loadRDF(documentText, store, fromMediaType).then((store: $rdf.Store) => {
+	await loadRDFrdflib(documentText, store, fromMediaType).then((store: $rdf.Store) => {
 		return serializeRDF(store, toMediaType);
 	}).then((data) => {
 		result = {status:true, message: data, mediaType: toMediaType};
@@ -181,17 +247,26 @@ async function toSerialization(documentText: string, fromMediaType: string, toMe
 	return result;
 }
 
+class Attribute {
+	property: string = "";
+	value: string = ""
+}
+
 class Node {
 	id: string = "";
 	name: string = "";
 	uri: string = "";
-	attributes = [];
-	type = [];
+	group: string= "";
+	attributes: Array<Attribute> = [];
+	type: Array<string> = [];
 }
 
 
-function buildGraph(store: $rdf.Store, serializer: any): {} {
+
+
+function buildD3Graph(store: $rdf.Store, serializer: any, showTypes: boolean): {} {
 	const RDF_TYPE: $rdf.NamedNode = $rdf.sym("http://www.w3.org/1999/02/22-rdf-syntax-ns#type");
+	const RDFS_SUBCLASSOF: $rdf.NamedNode = $rdf.sym("http://www.w3.org/2000/01/rdf-schema#subClassOf");
 
 	var nodesObject: Map<string,Node> = new Map();
 	var links: any = [];
@@ -200,6 +275,7 @@ function buildGraph(store: $rdf.Store, serializer: any): {} {
 	const statements: Array<$rdf.Statement> = store.statementsMatching(null, null, null, null);
 
 	for(let s of statements) {
+		// local function
 		processStatement(s);
 	}
 
@@ -212,21 +288,26 @@ function buildGraph(store: $rdf.Store, serializer: any): {} {
 		links: links
 	}
 
-	function getOrCreateNode(qname: string, uri: string, nodesObject: Map<string,Node> ): any {
+	function getOrCreateNode(qname: string, name: string, uri: string, group: string, nodesObject: Map<string,Node> ): any {
 		let node: Node = new Node();
 		
 		let safeURI = uri.replace("<","&lt;").replace(">","&gt;");
 	
 		if (!nodesObject.has(qname)) {
-			// Add the subject node if it does not already exist
+			// Add the resource node if it does not already exist
 			node.id = qname;
-			node.name = qname;
+			node.name = name;
 			node.uri = safeURI;
+			node.group = group;
+			node.type = [];
+			node.attributes = [];
+			// Add it to the nodes object just to be sure (so that it's there even if it's not updated later)
+			nodesObject.set(qname, node);
 		} else {
 			// Otherwise, retrieve it so that we can update it (we know it's never undefined)
 			node = nodesObject.get(qname) as Node;
 			if (node == undefined) {
-				throw "Subject is undefined, but this is impossible.";
+				throw "Resource is undefined, but this is impossible.";
 			}
 		}
 		return node;
@@ -236,19 +317,25 @@ function buildGraph(store: $rdf.Store, serializer: any): {} {
 		let s_qname: string = buildId(s.subject, serializer);
 		let p_qname: string = buildId(s.predicate, serializer);
 		let o_qname: string = buildId(s.object, serializer);
-		let g_qname: string = s.graph.toString();
 
+		let g_qname: string = buildId(s.graph, serializer);
+
+		// Always add the graph as node if it is not the DefaultGraph.
+		if (g_qname != "DefaultGraph") {
+			let graph = getOrCreateNode(g_qname, g_qname, s.graph.toString(), g_qname, nodesObject);
+			// Add the "@graph" type to the types for this node.
+			if (!graph.type.includes('@graph')) {
+				graph.type.push("@graph");
+			}
+		}
 
 		if ($rdf.isNamedNode(s.object)||$rdf.isBlankNode(s.object)) {
-			let subject = getOrCreateNode(s_qname, s.subject.toNT(), nodesObject);
+			// Get the subject node, or create one if it does not already exist.
+			let subject = getOrCreateNode(s_qname, s_qname, s.subject.toNT(), s_qname, nodesObject);
 			// Add type to node as attribute (rather than as edge to the graph)
 			if (s.predicate.equals(RDF_TYPE)) {
 
 				let types = subject.type as Array<string>;
-
-				if (types == undefined) {
-					types = new Array<string>();
-				}
 
 				if (!types.includes(o_qname)) {
 					types.push(o_qname);
@@ -258,7 +345,14 @@ function buildGraph(store: $rdf.Store, serializer: any): {} {
 			// update the dictionary of nodes
 			nodesObject.set(s_qname, subject);
 
-			let object = getOrCreateNode(o_qname, s.object.toString(), nodesObject);
+			// Skip type triples if showTypes is false
+			if (!showTypes && (s.predicate.value == RDF_TYPE.value)) {
+				return
+			} 
+			// Else, we create a node for the object, and add the edge to the graph
+
+			// Get or create the object node; in its own group (not a literal)
+			let object = getOrCreateNode(o_qname, o_qname, s.object.toNT(), o_qname, nodesObject);
 			nodesObject.set(o_qname, object);
 
 
@@ -266,37 +360,66 @@ function buildGraph(store: $rdf.Store, serializer: any): {} {
 			let link = {
 				source: s_qname,
 				target: o_qname,
-				name: p_qname,
+				id: safeJSIdentifier(s_qname+p_qname+o_qname),
+				name: p_qname, 
 				graph: g_qname
 			};
 
 			links.push(link);
 		} else if ($rdf.isLiteral(s.object)) {
 			// Get the subject, and its attributes
-			let subject = getOrCreateNode(s_qname, s.subject.toString(), nodesObject);
-
+			let subject = getOrCreateNode(s_qname, s_qname, s.subject.toNT(), s_qname, nodesObject);
 			let attributes = subject.attributes;
 
-			if (attributes == undefined) {
-				throw "Attributes are undefined, that should not be possible";
+			// If the attribute is not already defined on the node
+			if (attributes.find((x: { property: string; value: string; }) => x.property == p_qname && x.value == o_qname) == undefined) {
+			
+				if (attributes == undefined) {
+					throw "Attributes are undefined, that should not be possible";
+				}
+				// Create a new attribute/value pair
+				let attr:Attribute = {
+					"property": p_qname,
+					"value": o_qname
+				};
+				// Add it to the attributes, the subject node, and update the nodes object.
+				attributes.push(attr);
+				subject.attributes = attributes;
+
+				nodesObject.set(s_qname, subject);
+
+				// Get or create the object node; in the group of the subject.
+				let literal_value_node_id = safeJSIdentifier(s_qname+p_qname+o_qname);
+
+				let object = getOrCreateNode(literal_value_node_id, s.object.toString(), s.object.toString(), s_qname, nodesObject);
+				// Set the object type to Literal
+				object.type = ["Literal"];
+				nodesObject.set(literal_value_node_id, object);
+
+
+				// Add the link between subject and object
+				let link = {
+					source: s_qname,
+					target: literal_value_node_id,
+					id: literal_value_node_id, // Equivalent to subject + predicate + object
+					name: p_qname,
+					graph: g_qname
+				};
+
+				links.push(link);
 			}
-
-			// Create a new attribute/value pair
-			let attr = {
-				"property": p_qname,
-				"value": o_qname
-			};
-
-			// Add it to the attributes, the subject node, and update the nodes object.
-			attributes.push(attr);
-			subject.attributes = attributes;
-			nodesObject.set(s_qname, subject);
 		}
 	}
 }
 
-function buildId(term: $rdf.Node, serializer: any){
-	if ($rdf.isNamedNode(term) || $rdf.isBlankNode(term)){
+function safeJSIdentifier(value:string) {
+	return `id_${value}`.replace(/\W/g, '_').toLowerCase();
+}
+
+function buildId(term: $rdf.Node|GraphType|DefaultGraph, serializer: any){
+	if ($rdf.isGraph(term) && term.toString() == "DefaultGraph") {
+		return term.toString()
+	} else if ($rdf.isNamedNode(term) || $rdf.isBlankNode(term) || $rdf.isGraph(term)){
 		if(term.value.startsWith('_')){
 			return term.value;
 		}
@@ -324,8 +447,15 @@ function getNonce() {
 async function updateGraphView(document:vscode.TextDocument, extensionUri: vscode.Uri) {
 	let { data, fromMediaType } = await getDataAndMediaType(document);
 	const documentName = document.fileName;
+
+	let config = vscode.workspace.getConfiguration("linked-data");
+	let showTypes = config.get('showTypes');
+
+	if (!showTypes) {
+		vscode.window.showInformationMessage("Hiding nodes and edges for types");
+	} 
 	
-	await getView(data, fromMediaType).then((result) => {
+	await getView(data, fromMediaType, showTypes as boolean).then((result) => {
 		if(result.status){
 			// Create and show a new webview
 			const panel = vscode.window.createWebviewPanel(
@@ -364,7 +494,10 @@ async function updateGraphView(document:vscode.TextDocument, extensionUri: vscod
 					<script id="data">${JSON.stringify(result.message)}</script>
 				</head>
 				<body>
-					<svg id="graph" viewBox="0 0 1000 1000" preserveAspectRatio="xMidYMin slice"></svg>
+					<div>
+						<div id="tooltip"></div>
+						<svg id="graph" viewBox="0 0 1000 1000" preserveAspectRatio="xMidYMin slice"></svg>
+					</div>
 				</body>
 			</html>`;
 
@@ -412,7 +545,9 @@ async function getJSONwithEmbeddedContext(json_document: vscode.TextDocument) {
 			let expandedContextArray:any[] = [];
 			for (let c in context) {
 
-				if (typeof context[c] == 'string') {
+				// If the context is a string, and does not start with http, it is likely to be a file.
+				// Let's try to load it.
+				if (typeof context[c] == 'string' && !context[c].toLowerCase().startsWith("http")) {
 					const json_context_path = path.join(dirname, context[c]);
 					const json_context_doc = await vscode.workspace.openTextDocument(json_context_path);
 					expandedContextArray.push(JSON.parse(json_context_doc.getText()));
@@ -782,103 +917,114 @@ export function activate(context: vscode.ExtensionContext) {
 				// Get the data to query
 				const dataDocument = await vscode.workspace.openTextDocument(dataFileURI);
 
-				let documentInfo  = await getDataAndMediaType(dataDocument);
-	
+				let documentInfo  = await getDataAndMediaType(dataDocument);	
 				const result = await runQuery(query, documentInfo.data, documentInfo.fromMediaType);
 
-				var variables:string[] = [];
-				var data = [];
-
-				if (result.length > 0) {
-					// Iterate over the keys of the first result to obtain the array of variables.
-					for(let v in result[0]){
-						variables.push(v);
-					}
-
-					for(let r of result){
-						let stringresult = [];
-						for(let v of variables){
-							stringresult.push(r[v].value);
-						}
-						data.push(stringresult);
-					}
+				if (result[0] instanceof oxigraph.Quad) {
+					// CONSTRUCT query result
+					const filteredStore = new oxigraph.Store(result);
+					const serializedStore = filteredStore.dump("application/n-quads", undefined);
 					
-				}
+					let doc = await vscode.workspace.openTextDocument({content: serializedStore, language: "turtle"});
+					await vscode.window.showTextDocument(doc, {preview: false});
+				} else {
+					// SELECT query result
+					var variables:string[] = [];
+					var data = [];
 
-				// Build a CSV file
-				let csv:any[] = data;
-				csv.unshift(variables)
-				let csvstring:string = csv.map(function(row){
-					let rowstring:string = row.map(function(d:string[]){
-						return JSON.stringify(d);
-					}).join(";");
-					return rowstring;
-				}).join('\n');
-				let doc = await vscode.workspace.openTextDocument({content: csvstring, language: "csv"});
-				await vscode.window.showTextDocument(doc, vscode.ViewColumn.Two);
-
-
-				// Build a webview with the results
-				const panel = vscode.window.createWebviewPanel(
-					'linked-data', // Identifies the type of the webview. Used internally
-					'SPARQL Results: '+documentName, // Title of the panel displayed to the user
-					vscode.ViewColumn.Two, // Editor column to show the new webview panel in.
-					{
-						// Enable scripts in the webview
-						enableScripts: true
+					if (result.length > 0) {
+						// Iterate over the keys of the first result to obtain the array of variables.
+						for(let v of result[0].keys()){
+							variables.push(v);
+						}
+						for(let r of result){
+							let stringresult = [];
+							for(let v of r.keys()){ // variables are key in the map
+								if (r.get(v).value != undefined) {
+									stringresult.push(r.get(v).value);
+								} else {
+									stringresult.push("");
+								}
+								
+							}
+							data.push(stringresult);
+						}
+						
 					}
-				);
-				
-				// Produce the required script tags to be put in the HTML head.
-				const nonce = getNonce();
-				
-				var html:string = `
-				<!DOCTYPE html>
-				  <html lang="en">
-					<head>
-						<meta charset="UTF-8">
-						<meta name="viewport" content="width=device-width, initial-scale=1.0">
-						<title>SPARQL Results</title>
-						<!--
-						Use a content security policy to only allow loading images from https or from our extension directory,
-						and only allow scripts that have a specific nonce.
-						-->
-						<meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src ${panel.webview.cspSource} 'unsafe-inline' https:; img-src ${panel.webview.cspSource} https: data:; script-src 'nonce-${nonce}' 'unsafe-inline'; font-src ${panel.webview.cspSource}; connect-src https: http: ;">
-						
-	
-						
-						<link href="https://unpkg.com/gridjs/dist/theme/mermaid.min.css" rel="stylesheet" />
-					</head>
-					<body>
-					<h2>Query Results</h2>
-					  <div id="container" style="padding: 1em; box-sizing: border-box; max-width: 100%; overflow: scroll; align-items: center; justify-content: center;">
-					    <h3>Query</h3>
-					    <div id="query">
-							<pre>
-${query}
-							</pre>
+
+					// Build a CSV file
+					let csv:any[] = data;
+					// csv.unshift(variables)
+					let csvstring:string = csv.map(function(row){
+						let rowstring:string = row.map(function(d:string[]){
+							return JSON.stringify(d);
+						}).join(";");
+						return rowstring;
+					}).join('\n');
+					let doc = await vscode.workspace.openTextDocument({content: csvstring, language: "csv"});
+					await vscode.window.showTextDocument(doc, vscode.ViewColumn.Two);
+
+
+					// Build a webview with the results
+					const panel = vscode.window.createWebviewPanel(
+						'linked-data', // Identifies the type of the webview. Used internally
+						'SPARQL Results: '+documentName, // Title of the panel displayed to the user
+						vscode.ViewColumn.Two, // Editor column to show the new webview panel in.
+						{
+							// Enable scripts in the webview
+							enableScripts: true
+						}
+					);
+					
+					// Produce the required script tags to be put in the HTML head.
+					const nonce = getNonce();
+					
+					var html:string = `
+					<!DOCTYPE html>
+					<html lang="en">
+						<head>
+							<meta charset="UTF-8">
+							<meta name="viewport" content="width=device-width, initial-scale=1.0">
+							<title>SPARQL Results</title>
+							<!--
+							Use a content security policy to only allow loading images from https or from our extension directory,
+							and only allow scripts that have a specific nonce.
+							-->
+							<meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src ${panel.webview.cspSource} 'unsafe-inline' https:; img-src ${panel.webview.cspSource} https: data:; script-src 'nonce-${nonce}' 'unsafe-inline'; font-src ${panel.webview.cspSource}; connect-src https: http: ;">
+							
+		
+							
+							<link href="https://unpkg.com/gridjs/dist/theme/mermaid.min.css" rel="stylesheet" />
+						</head>
+						<body>
+						<h2>Query Results</h2>
+						<div id="container" style="padding: 1em; box-sizing: border-box; max-width: 100%; overflow: scroll; align-items: center; justify-content: center;">
+							<h3>Query</h3>
+							<div id="query">
+								<pre>
+	${escapeHTML(query)}
+								</pre>
+							</div>
+							<h3>Results</h3>
+							<div id="wrapper"></div>
 						</div>
-						<h3>Results</h3>
-					  	<div id="wrapper"></div>
-					  </div>
-					  <script nonce="${nonce}" src="https://unpkg.com/gridjs/dist/gridjs.umd.js"></script>
-					  <script nonce="${nonce}" >
-					  new gridjs.Grid({
-						columns: ${JSON.stringify(variables)},
-						data: ${JSON.stringify(data)},
-						sort: true,
-						pagination: true,
-						search: true,
-						resizable: true
-					  }).render(document.getElementById("wrapper"));
-					  </script>
-					</body>
-				</html>`;
-	
-				panel.webview.html = html;
-				return
-				
-				
+						<script nonce="${nonce}" src="https://unpkg.com/gridjs/dist/gridjs.umd.js"></script>
+						<script nonce="${nonce}" >
+						new gridjs.Grid({
+							columns: ${JSON.stringify(variables)},
+							data: ${JSON.stringify(data)},
+							sort: true,
+							pagination: {limit: 50},
+							search: true,
+							resizable: true
+						}).render(document.getElementById("wrapper"));
+						</script>
+						</body>
+					</html>`;
+		
+					panel.webview.html = html;
+					return
+				}
 			} catch(e: any) {
 				vscode.window.showErrorMessage(e.message);
 			}
@@ -956,10 +1102,10 @@ async function validate(document: vscode.TextDocument, shaclDocument: vscode.Tex
 	let store = new $rdf.Store();
 	let shapesStore = new $rdf.Store();
 
-	await loadRDF(doc.data, store, doc.fromMediaType);
+	await loadRDFrdflib(doc.data, store, doc.fromMediaType);
 	let data = await serializeRDF(store, 'application/ld+json');
 
-	await loadRDF(shapes.data, shapesStore, shapes.fromMediaType);
+	await loadRDFrdflib(shapes.data, shapesStore, shapes.fromMediaType);
 	let shapesData = await serializeRDF(shapesStore, 'text/turtle');
 
 
@@ -967,6 +1113,20 @@ async function validate(document: vscode.TextDocument, shaclDocument: vscode.Tex
 	let report = await validator.validate(data, {baseUrl: "http://example.org/test"});
 	return(report);
   }
+
+
+function escapeHTML(html:string):string {
+    var fn=function(tag:string) {
+        var charsToReplace:any = {
+            '&': '&amp;',
+            '<': '&lt;',
+            '>': '&gt;',
+            '"': '&#34;'
+        };
+        return charsToReplace[tag] || tag;
+    }
+    return html.replace(/[&<>"]/g, fn);
+}
 
 
 // this method is called when your extension is deactivated

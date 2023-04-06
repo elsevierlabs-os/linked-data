@@ -6,18 +6,66 @@
         "otherns": "https://example.com/b/",
         "owl": "http://www.w3.org/2002/07/owl#"
     },
-    "@graph": [{
-        "@id": "b123",
-        "@type": "Fish",
-        "name": "What a nice name",
-        "linkedTo": {
-            "@id": "b456",
-            "name": "That's a silly name",
-            "@type": "Squid",
+    "@graph": [
+        {
+            "@id": "b123",
+            "comment": "I'm in the default graph",
             "linkedTo": {
-                "name": "No names are cool"
+                "@id": "b789",
+                "comment": "I'm in the default graph too!"
             }
-        }},
-        {"@id": "myns:Fish", "@type": "owl:Class"}
+        },
+        {
+            "@id": "graph1",
+            "@graph": [
+                {
+                    "@id": "b123",
+                    "@type": "Fish",
+                    "name": "What a nice name",
+                    "linkedTo": [{
+                        "@id": "b456",
+                        "name": "That's a silly name",
+                        "@type": "Squid",
+                        "linkedTo": {
+                            "name": "No names are cool"
+                        }
+                    }
+                    ]
+                }
+            ]
+        },
+        {
+            "@id": "graph2",
+            "@graph": [
+                {"@id": "myns:Fish", "@type": "owl:Class"},
+                {"@id": "b123", "name": "I don't like this name"}
+            ]
+        },
+        {
+            "@id": "graph3",
+            "@graph": [
+                {
+                    "@id": "b456", 
+                    "bornIn": {
+                        "@id": "greatCity",
+                        "name": "Great City"
+                    }
+                }
+            ]
+        },
+        {
+            "@id": "graph4",
+            "@graph": [
+                {
+                    "@id": "greatCity", 
+                    "@type": "myns:City"
+                },
+                {
+                    "@id": "myns:City", 
+                    "@type": "owl:Class"
+                }
+            ]
+        }
+            
     ]
 }
