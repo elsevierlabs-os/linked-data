@@ -938,11 +938,8 @@ export function activate(context: vscode.ExtensionContext) {
 							variables.push(v);
 						}
 						for(let r of result){
-							console.log(r);
 							let stringresult = [];
 							for(let v of r.keys()){ // variables are key in the map
-								console.log(v);
-								console.log(r.get(v).value);
 								if (r.get(v).value != undefined) {
 									stringresult.push(r.get(v).value);
 								} else {
