@@ -4,12 +4,13 @@ import * as vscode from 'vscode';
 import * as path from 'path';
 import * as $rdf from 'rdflib';
 import { parse } from 'yaml';
+import axios from 'axios';
 const jsonld = require('jsonld');
 const ShaclValidator = require('schemarama/shaclValidator').Validator;
 const slugify = require('slugify');
 
 import { rawListeners, report } from 'process';
-import { RDFArrayRemove } from 'rdflib/lib/utils-js';
+import { RDFArrayRemove, output } from 'rdflib/lib/utils-js';
 import { GraphType } from 'rdflib/lib/types';
 import { DefaultGraph } from 'rdflib/lib/tf-types';
 import { isSubject } from 'rdflib';
@@ -26,6 +27,8 @@ interface GVResponse {
 	message: any,
 	status: boolean
 };
+
+let outputChannel: vscode.OutputChannel;
 
 
 
@@ -73,8 +76,15 @@ function suggestContextPrefixes(json: any, rdfSerializer: any) {
 async function JSONLDtoNQuads(data: string){
 	// Convert JSON-LD to NQuads through jsonld.js as it is much better at parsing JSON-LD than rdflib.js, and oxigraph cannot parse it at all
 	const data_object = JSON.parse(data);
-
-	return jsonld.toRDF(data_object, {format: 'application/n-quads'});
+	
+	try {
+		return await jsonld.toRDF(data_object, {format: 'application/n-quads'});
+	} catch (err:any) {
+		outputChannel.appendLine("Could not convert JSON-LD to NQuads");
+		outputChannel.appendLine(err);
+		throw err 
+	}
+	
 }
 
 
@@ -92,18 +102,23 @@ function loadRDFrdflib(data: string, rdfStore: $rdf.Store, mediaType: string) {
 				console.log("Converting to JSON-LD to NQuads to preserve named graphs");
 				JSONLDtoNQuads(data)
 					.then(nquads => $rdf.parse(nquads, rdfStore, "https://example.com/test/", "application/n-quads", function () {
-						vscode.window.showInformationMessage("Successfully parsed: Statements in the graph: " + rdfStore.length);
+						outputChannel.appendLine("Successfully parsed: Statements in the graph: " + rdfStore.length);
 						resolve(rdfStore);
-					}));
+					}))
+					.catch((reason) => {
+						outputChannel.appendLine("Could not parse JSON-LD into graph");
+						outputChannel.appendLine(reason);
+						reject(reason);
+					});
 			} else {
 				$rdf.parse(data, rdfStore, "https://example.com/test/", mediaType, function () {
-					vscode.window.showInformationMessage("Successfully parsed: Statements in the graph: " + rdfStore.length);
+					outputChannel.appendLine("Successfully parsed: Statements in the graph: " + rdfStore.length);
 					resolve(rdfStore);
 			});
 			}
 
 		} catch (err:any) {
-			vscode.window.showErrorMessage(`Failed to load data into triplestore as ${mediaType}!`, err);
+			outputChannel.appendLine(`Failed to load data into triplestore as ${mediaType}!` + err);
 			reject(err);
 		}
 	});
@@ -123,8 +138,7 @@ function serializeRDF(rdfStore: $rdf.Store, mediaType: string) {
 				resolve(result);
 			});
 		} catch (err: any) {
-			vscode.window.showErrorMessage(`Failed to serialize store to ${mediaType}!`, err);
-			console.log(`Failed to serialize store to ${mediaType}!`);
+			outputChannel.appendLine(`Failed to serialize store to ${mediaType}! ` + err);
 			reject(err);
 		}
 	});
@@ -146,17 +160,21 @@ function loadRDFOxigraph(data: string, rdfStore: oxigraph.Store, mediaType: stri
 					.then(nquads => {
 						rdfStore.load(nquads, mediaType, undefined, undefined);
 						console.log(rdfStore);
-						vscode.window.showInformationMessage("Successfully parsed: Statements in the graph: " + rdfStore.size);
+						outputChannel.appendLine("Successfully parsed: Statements in the graph: " + rdfStore.size);
 						resolve(rdfStore);
+					}).catch((reason) => {
+						outputChannel.appendLine("Could not parse JSON-LD into graph")
+						outputChannel.appendLine(reason);
+						reject(reason);
 					});
 			} else {
 				rdfStore.load(data, mediaType, undefined, undefined);
 				console.log(rdfStore);
-				vscode.window.showInformationMessage("Successfully parsed: Statements in the graph: " + rdfStore.size);
+				outputChannel.appendLine("Successfully parsed: Statements in the graph: " + rdfStore.size);
 				resolve(rdfStore);
 			}
 		} catch (err:any) {
-			vscode.window.showErrorMessage(`Failed to load data into triplestore as ${mediaType}!`, err);
+			outputChannel.appendLine(`Failed to load data into triplestore as ${mediaType}!` + err);
 			reject(err);
 		}
 	});
@@ -202,27 +220,6 @@ async function getView(documentText: string, mediaType: string, showTypes: boole
 }
 
 
-// async function toSerializationOxigraphPARTIAL(documentText: string, fromMediaType: string, toMediaType: string): Promise<GVResponse> {
-
-// 	// only partially developed
-// 	var store = new oxigraph.Store();
-
-// 	store = await loadRDFOxigraph(documentText, store, fromMediaType);
-
-// 	try {
-// 		if (toMediaType == "application/ld+json") {
-
-// 		} else {
-// 			var data = store.dump(toMediaType, undefined);
-
-// 			return {status: true, message: data, mediaType: toMediaType}
-// 		}
-// 	} catch (error:any) {
-// 		vscode.window.showErrorMessage(`Something went wrong while trying to parse from ${fromMediaType} to ${toMediaType}`);
-// 		return {status: false, message: error.message, mediaType: ""};
-// 	}
-	
-// }
 
 
 async function toSerialization(documentText: string, fromMediaType: string, toMediaType: string): Promise<GVResponse> {
@@ -234,13 +231,14 @@ async function toSerialization(documentText: string, fromMediaType: string, toMe
 	}
 	
 	var result:GVResponse = {status: false, message: "initialized", mediaType: "unknown"};
+	outputChannel.appendLine("Starting conversion...");
 	await loadRDFrdflib(documentText, store, fromMediaType).then((store: $rdf.Store) => {
 		return serializeRDF(store, toMediaType);
 	}).then((data) => {
 		result = {status:true, message: data, mediaType: toMediaType};
 	}).catch((reason) => {
 		result = {status: false, message: reason.toString(), mediaType: ""};
-		vscode.window.showErrorMessage(`Something went wrong while trying to parse from ${fromMediaType} to ${toMediaType}`);
+		outputChannel.appendLine(`Failed converting from ${fromMediaType} to ${toMediaType}`);
 	}).finally(() => {
 		return result;
 	});
@@ -452,7 +450,7 @@ async function updateGraphView(document:vscode.TextDocument, extensionUri: vscod
 	let showTypes = config.get('showTypes');
 
 	if (!showTypes) {
-		vscode.window.showInformationMessage("Hiding nodes and edges for types");
+		outputChannel.appendLine("Hiding nodes and edges for types");
 	} 
 	
 	await getView(data, fromMediaType, showTypes as boolean).then((result) => {
@@ -504,7 +502,7 @@ async function updateGraphView(document:vscode.TextDocument, extensionUri: vscod
 			panel.webview.html = html;
 			return
 		} else {
-			vscode.window.showErrorMessage(result.message);
+			outputChannel.appendLine(result.message);
 
 		}
 
@@ -520,12 +518,23 @@ async function getJSONwithEmbeddedContext(json_document: vscode.TextDocument) {
 
 	let config = vscode.workspace.getConfiguration("linked-data");
 	let loadLocalContexts = config.get('loadLocalContexts');
+	let prefetchRemoteContexts = config.get('prefetchRemoteContexts');
+	let gracefullyIgnoreFailedPrefetch = config.get('gracefullyIgnoreFailedPrefetch');
 
-	if (!loadLocalContexts || !json_object['@context']) {
+	if (!(loadLocalContexts || prefetchRemoteContexts) || !json_object['@context']) {
 		return(json_object);
-	} else {
-		vscode.window.showInformationMessage("Will attempt to load local contexts");
 	}
+
+	if (loadLocalContexts) {
+		outputChannel.appendLine("Will attempt to load any local contexts");
+	}
+	if (prefetchRemoteContexts) {
+		outputChannel.appendLine("Will attempt to prefetch any remote contexts");
+		if (gracefullyIgnoreFailedPrefetch) {
+			outputChannel.appendLine("Will ignore any failed prefetching of contexts..");
+		}
+	}
+
 
 	try {
 		let context = json_object['@context']
@@ -544,14 +553,40 @@ async function getJSONwithEmbeddedContext(json_document: vscode.TextDocument) {
 		if (context.constructor === Array) {
 			let expandedContextArray:any[] = [];
 			for (let c in context) {
-
+				console.log(context[c]);
 				// If the context is a string, and does not start with http, it is likely to be a file.
 				// Let's try to load it.
-				if (typeof context[c] == 'string' && !context[c].toLowerCase().startsWith("http")) {
+				if (typeof context[c] == 'string' && loadLocalContexts && !context[c].toLowerCase().startsWith("http")) {
 					const json_context_path = path.join(dirname, context[c]);
 					const json_context_doc = await vscode.workspace.openTextDocument(json_context_path);
 					expandedContextArray.push(JSON.parse(json_context_doc.getText()));
-					vscode.window.showInformationMessage(`Including context from ${json_context_path}`);
+					outputChannel.appendLine(`Including context from ${json_context_path}`);
+				} else if (typeof context[c] == 'string' && prefetchRemoteContexts && context[c].toLowerCase().startsWith("http") ){
+					console.log("Fetching context from URL " + context[c]);
+					try {
+						const response = await axios({
+							method: 'post',
+							url: context[c],
+							headers: { Accept: "application/ld-json;profile=http://www.w3.org/ns/json-ld#context"}
+						})
+						console.log(response.data);
+						const remote_context = response.data;
+						outputChannel.appendLine("Preloaded context from " + context[c]);
+						expandedContextArray.push(remote_context);
+					} catch (e: any){
+						outputChannel.appendLine("Could not preload context from " + context[c]);
+						outputChannel.appendLine(e.message);
+						console.log(e);
+						if (!gracefullyIgnoreFailedPrefetch) {
+							expandedContextArray.push(context[c]);
+						} else {
+							outputChannel.appendLine("Continuing regardless of failed preload...")
+						}
+						
+					}
+				} else if (typeof context[c] == 'string' && context[c].toLowerCase().startsWith("http") ) {
+						console.log("Adding proxy");
+						expandedContextArray.push(context[c]);
 				} else {
 					// Just passing through the value in the context array, as it may be an object or another array.
 					expandedContextArray.push(context[c]);
@@ -560,8 +595,8 @@ async function getJSONwithEmbeddedContext(json_document: vscode.TextDocument) {
 			json_object['@context'] = expandedContextArray;
 		}
 	} catch (e: any) {
-		vscode.window.showErrorMessage(e.message);
-		console.log("Could not load context from files");
+		outputChannel.appendLine(e.message);
+		outputChannel.appendLine("Could not load context from files");
 	}
 	return json_object;
 }
@@ -574,6 +609,8 @@ export function activate(context: vscode.ExtensionContext) {
 	
 	console.log('The extension "linked-data" is now active!');
 
+	outputChannel = vscode.window.createOutputChannel("Linked Data Extension");
+	outputChannel.show(true);
 
 	let disposableViewer = vscode.commands.registerCommand('linked-data.view', async () => {
 		const editor = vscode.window.activeTextEditor;
@@ -604,7 +641,7 @@ export function activate(context: vscode.ExtensionContext) {
 				let doc = await vscode.workspace.openTextDocument({content: compactedString, language: "json"});
 				await vscode.window.showTextDocument(doc, {preview: false});
 			} catch(e: any) {
-				vscode.window.showErrorMessage(e.message);
+				outputChannel.appendLine(e.message);
 			}
 		}
 	});
@@ -620,7 +657,7 @@ export function activate(context: vscode.ExtensionContext) {
 				let doc = await vscode.workspace.openTextDocument({content: expandedString, language: "json"});
 				await vscode.window.showTextDocument(doc, {preview: false, viewColumn: vscode.ViewColumn.Beside});
 			} catch(e: any) {
-				vscode.window.showErrorMessage(e.message);
+				outputChannel.appendLine(e.message);
 				return;
 			}
 			
@@ -645,7 +682,7 @@ export function activate(context: vscode.ExtensionContext) {
 				let doc = await vscode.workspace.openTextDocument({content: flattenedString, language: "json"});
 				await vscode.window.showTextDocument(doc, {preview: false});
 			} catch(e: any) {
-				vscode.window.showErrorMessage(e.message);
+				outputChannel.appendLine(e.message);
 			}
 			
 		}
@@ -671,16 +708,17 @@ export function activate(context: vscode.ExtensionContext) {
 				}
 
 				const frameDocument = await vscode.workspace.openTextDocument(frameFileURI[0]);
-				const frameJSON = JSON.parse(frameDocument.getText());
+				const frameJSON = await getJSONwithEmbeddedContext(document);
+				// const frameJSON = JSON.parse(frameDocument.getText());
 	
 				const framed = await jsonld.frame(documentJSON, frameJSON);
 				const framedString = JSON.stringify(framed, null, 2);
 				
 				let doc = await vscode.workspace.openTextDocument({content: framedString, language: "json"});
-				vscode.window.showInformationMessage(`Framed document ${documentName} using ${frameFileURI[0].toString()}`);
+				outputChannel.appendLine(`Framed document ${documentName} using ${frameFileURI[0].toString()}`);
 				await vscode.window.showTextDocument(doc, {preview: false});
 			} catch(e: any) {
-				vscode.window.showErrorMessage(e.message);
+				outputChannel.appendLine(e.message);
 			}
 			
 		}
@@ -696,7 +734,7 @@ export function activate(context: vscode.ExtensionContext) {
 				let targetLanguage:string = "turtle";
 				await doFormatConversion(document, toMediaType, targetLanguage);
 			} catch(e: any) {
-				vscode.window.showErrorMessage(e.message);
+				outputChannel.appendLine(e.message);
 			}
 			
 		}
@@ -712,7 +750,7 @@ export function activate(context: vscode.ExtensionContext) {
 				let targetLanguage:string = "turtle";
 				await doFormatConversion(document, toMediaType, targetLanguage);
 			} catch(e: any) {
-				vscode.window.showErrorMessage(e.message);
+				outputChannel.appendLine(e.message);
 			}
 			
 		}
@@ -728,7 +766,7 @@ export function activate(context: vscode.ExtensionContext) {
 				let targetLanguage:string = "xml";
 				await doFormatConversion(document, toMediaType, targetLanguage);
 			} catch(e: any) {
-				vscode.window.showErrorMessage(e.message);
+				outputChannel.appendLine(e.message);
 			}
 			
 		}
@@ -744,7 +782,7 @@ export function activate(context: vscode.ExtensionContext) {
 				let targetLanguage:string = "json";
 				await doFormatConversion(document, toMediaType, targetLanguage);
 			} catch(e: any) {
-				vscode.window.showErrorMessage(e.message);
+				outputChannel.appendLine(e.message);
 			}
 			
 		}
@@ -773,7 +811,7 @@ export function activate(context: vscode.ExtensionContext) {
 						shaclFileName = config.shapes;
 
 					} catch {
-						vscode.window.showErrorMessage("Could not parse comments as YAML, or YAML does not define `file` attribute.");
+						outputChannel.appendLine("Could not parse comments as YAML, or YAML does not define `file` attribute.");
 					}
 				}
 
@@ -792,17 +830,20 @@ export function activate(context: vscode.ExtensionContext) {
 					shaclFileURI = shaclFileURIs[0];
 				}
 
+				
 				const shaclDocument = await vscode.workspace.openTextDocument(shaclFileURI);
-
 				const result = await validate(document, shaclDocument);
-
+				
+				console.log(result);
 				// No failures? File is valid!
 				if(result.failures.length==0) {
-					vscode.window.showInformationMessage("Congratulations, your file is valid!");
+					console.log("File is valid");
+					outputChannel.appendLine("Congratulations, your graph is valid!");
 					return;
 				} 
 				// If we do have failures, let's show them.
-				vscode.window.showWarningMessage("Alas, your file is not valid.");
+				console.log("File is not valid");
+				vscode.window.showWarningMessage("Alas, your graph is not valid.");
 
 				const variables = ["node", "message", "shape", "property", "severity"];
 				const data = result.failures;
@@ -857,10 +898,10 @@ export function activate(context: vscode.ExtensionContext) {
 	
 				panel.webview.html = html;
 				
-				let doc = await vscode.workspace.openTextDocument({content: result, language: "json"});
-				vscode.window.showTextDocument(doc, {preview: false});
+				let doc = await vscode.workspace.openTextDocument({content: JSON.stringify(result), language: "json"});
+				await vscode.window.showTextDocument(doc, {preview: false});
 			} catch(e: any) {
-				vscode.window.showErrorMessage(e.message);
+				outputChannel.appendLine(e.message);
 			}
 			
 		}
@@ -892,7 +933,7 @@ export function activate(context: vscode.ExtensionContext) {
 						dataFileName = config.file;
 
 					} catch {
-						vscode.window.showErrorMessage("Could not parse comments as YAML, or YAML does not define `file` attribute.");
+						outputChannel.appendLine("Could not parse comments as YAML, or YAML does not define `file` attribute.");
 					}
 				}
 
@@ -1026,7 +1067,7 @@ export function activate(context: vscode.ExtensionContext) {
 					return
 				}
 			} catch(e: any) {
-				vscode.window.showErrorMessage(e.message);
+				outputChannel.appendLine(e.message);
 			}
 			
 		}
@@ -1049,11 +1090,11 @@ export function activate(context: vscode.ExtensionContext) {
 async function doFormatConversion(document: vscode.TextDocument, toMediaType: string, targetLanguage: string) {
 	let { data, fromMediaType } = await getDataAndMediaType(document);
 	if (toMediaType == fromMediaType) {
-		vscode.window.showErrorMessage(`The file is already in the ${toMediaType} format`);
+		outputChannel.appendLine(`The file is already in the ${toMediaType} format`);
 		return;
 	} 
 	if (fromMediaType == 'application/trig') {
-		vscode.window.showErrorMessage(`Unfortunately the TriG format is not supported`);
+		outputChannel.appendLine(`Unfortunately the TriG format is not supported`);
 		return;
 	}
 
@@ -1062,7 +1103,7 @@ async function doFormatConversion(document: vscode.TextDocument, toMediaType: st
 		let doc = await vscode.workspace.openTextDocument({ content: result.message, language: targetLanguage });
 		await vscode.window.showTextDocument(doc, { preview: false });
 	} else {
-		vscode.window.showErrorMessage(result.message);
+		outputChannel.appendLine(result.message);
 	}
 }
 
@@ -1090,7 +1131,7 @@ async function getDataAndMediaType(document: vscode.TextDocument) {
 		data = document.getText();
 		fromMediaType = "application/rdf+xml"
 	} else {
-		vscode.window.showErrorMessage("Cannot establish file type. Should be json/json-ld, turtle, trig or xml/rdf+xml. N-Triples and N-Quads are automatically derived from Turtle. Make sure you have the Stardog RDF syntaxes extension installed!");
+		outputChannel.appendLine("Cannot establish file type. Should be json/json-ld, turtle, trig or xml/rdf+xml. N-Triples and N-Quads are automatically derived from Turtle. Make sure you have the Stardog RDF syntaxes extension installed!");
 	}
 	return { data, fromMediaType };
 }
@@ -1108,10 +1149,16 @@ async function validate(document: vscode.TextDocument, shaclDocument: vscode.Tex
 	await loadRDFrdflib(shapes.data, shapesStore, shapes.fromMediaType);
 	let shapesData = await serializeRDF(shapesStore, 'text/turtle');
 
+	try {
+		const validator = new ShaclValidator(shapesData, {annotations: {"node": "http://www.w3.org/ns/shacl#focusNode", "label": "http://www.w3.org/2000/01/rdf-schema#label"}});
+		let report = await validator.validate(data, {baseUrl: "http://example.org/test"});
+		return(report);
+	} catch (e:any) {
+		outputChannel.appendLine("SHACL Validator threw an error");
+		outputChannel.appendLine(e.message);
+		return {failures: [{message: "SHACL Validator threw an error: "+e.message, shape: "N/A", node: "N/A", severity: "error", property: "N/A"}]};
+	}
 
-	const validator = new ShaclValidator(shapesData, {annotations: {"node": "http://www.w3.org/ns/shacl#focusNode", "label": "http://www.w3.org/2000/01/rdf-schema#label"}});
-	let report = await validator.validate(data, {baseUrl: "http://example.org/test"});
-	return(report);
   }
 
 
