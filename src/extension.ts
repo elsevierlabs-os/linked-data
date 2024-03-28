@@ -565,12 +565,24 @@ async function getJSONwithEmbeddedContext(json_document: vscode.TextDocument) {
 					console.log("Fetching context from URL " + context[c]);
 					try {
 						const response = await axios({
-							method: 'post',
+							method: 'get',
 							url: context[c],
-							headers: { Accept: "application/ld-json;profile=http://www.w3.org/ns/json-ld#context"}
+							headers: { Accept: "application/ld+json;profile=http://www.w3.org/ns/json-ld#context"}
 						})
-						console.log(response.data);
-						const remote_context = response.data;
+						console.log(response);
+
+						if(response.headers['content-type'] != 'application/json' && response.headers['content-type'] != 'text/json' && response.headers['content-type'] != 'application/ld+json') {
+							throw new Error("Service did not return JSON content type: " + response.headers['content-type']);
+						}
+
+
+						var remote_context = response.data;
+
+						if (typeof remote_context == 'string'){
+							// Ensure that the returned response can be parsed as data
+							remote_context = JSON.parse(remote_context);
+						}
+
 						outputChannel.appendLine("Preloaded context from " + context[c]);
 						expandedContextArray.push(remote_context);
 					} catch (e: any){
