@@ -571,11 +571,18 @@ async function getJSONwithEmbeddedContext(json_document: vscode.TextDocument) {
 						})
 						console.log(response);
 
-						if(response.headers['content-type'] != 'application/json' || response.headers['content-type'] != 'text/json' || response.headers['content-type'] != 'application/ld+json') {
+						if(response.headers['content-type'] != 'application/json' && response.headers['content-type'] != 'text/json' && response.headers['content-type'] != 'application/ld+json') {
 							throw new Error("Service did not return JSON content type: " + response.headers['content-type']);
 						}
 
-						const remote_context = response.data;
+
+						var remote_context = response.data;
+
+						if (typeof remote_context == 'string'){
+							// Ensure that the returned response can be parsed as data
+							remote_context = JSON.parse(remote_context);
+						}
+
 						outputChannel.appendLine("Preloaded context from " + context[c]);
 						expandedContextArray.push(remote_context);
 					} catch (e: any){
