@@ -795,7 +795,7 @@ export function activate(context: vscode.ExtensionContext) {
 				let document = editor.document ;
 
 				// Try to obtain YAML configuration from comments at the top of the query 
-				const re = /^(#.+\n)+/;
+				const re = /^(#.+\r?\n)+/;
 				const m = document.getText().match(re);
 				var shaclFileName;
 
@@ -915,7 +915,7 @@ export function activate(context: vscode.ExtensionContext) {
 				const query = document.getText();
 
 				// Try to obtain YAML configuration from comments at the top of the query 
-				const re = /^(#.+\n)+/;
+				const re = /^(#.+\r?\n)+/;
 				const m = query.match(re);
 				var dataFileName;
 
@@ -970,13 +970,13 @@ export function activate(context: vscode.ExtensionContext) {
 					var data = [];
 
 					if (result.length > 0) {
-						// Iterate over the keys of the first result to obtain the array of variables.
-						for(let v of result[0].keys()){
-							variables.push(v);
-						}
 						for(let r of result){
 							let stringresult = [];
 							for(let v of r.keys()){ // variables are key in the map
+								
+								if (!variables.includes(v)) {
+									variables.push(v);
+								}
 								if (r.get(v).value != undefined) {
 									stringresult.push(r.get(v).value);
 								} else {

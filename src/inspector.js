@@ -1,6 +1,7 @@
 import * as d3 from "d3";
 import { default as d3tip } from "d3-tip";
-// import { on } from "events";
+import { on } from "events";
+import css from './inspector.css';
 
 document.addEventListener('DOMContentLoaded', function() {
     const dataContents = window.document.getElementById('data').innerText;
@@ -128,6 +129,7 @@ function ForceGraph({nodes, links}, // a dictionary with nodes and links arrays.
             .style("opacity", 0)
             .attr("class","tooltip")
             .style("background-color", "white")
+            .style("color","rgb(36, 41, 46)")
             .style("border", "solid")
             .style("border-width", "2px")
             .style("border-radius", "5px")
