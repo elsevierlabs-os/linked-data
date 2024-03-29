@@ -7,18 +7,9 @@ import { parse } from 'yaml';
 import axios from 'axios';
 const jsonld = require('jsonld');
 const ShaclValidator = require('schemarama/shaclValidator').Validator;
-const slugify = require('slugify');
-
-import { rawListeners, report } from 'process';
-import { RDFArrayRemove, output } from 'rdflib/lib/utils-js';
 import { GraphType } from 'rdflib/lib/types';
 import { DefaultGraph } from 'rdflib/lib/tf-types';
-import { isSubject } from 'rdflib';
-
-// New Oxigraph JS RDF library (built from rust)
-
 import oxigraph from 'oxigraph/node.js';
-// const oxigraph = require('oxigraph');
 
 const STRICT_NQUADS_REGEX = /(<\S+?>|_:\S+)?\s+(<\S+?>)\s+(<\S+?>|_:\S+?|(".*"(^^<.+>)?))\s+(<\S+?>|_:\S+?)\s*\.(\s*#.+)?/g;
 
@@ -99,7 +90,7 @@ function loadRDFrdflib(data: string, rdfStore: $rdf.Store, mediaType: string) {
 		try {
 
 			if (mediaType == "application/ld+json") {
-				console.log("Converting to JSON-LD to NQuads to preserve named graphs");
+				outputChannel.appendLine("Converting from JSON-LD to NQuads to preserve named graphs");
 				JSONLDtoNQuads(data)
 					.then(nquads => $rdf.parse(nquads, rdfStore, "https://example.com/test/", "application/n-quads", function () {
 						outputChannel.appendLine("Successfully parsed: Statements in the graph: " + rdfStore.length);
@@ -155,11 +146,10 @@ function loadRDFOxigraph(data: string, rdfStore: oxigraph.Store, mediaType: stri
 		try {
 
 			if (mediaType == "application/ld+json") {
-				console.log("Converting to JSON-LD to NQuads to preserve named graphs");
+				outputChannel.appendLine("Converting to JSON-LD to NQuads to preserve named graphs");
 				JSONLDtoNQuads(data)
 					.then(nquads => {
 						rdfStore.load(nquads, mediaType, undefined, undefined);
-						console.log(rdfStore);
 						outputChannel.appendLine("Successfully parsed: Statements in the graph: " + rdfStore.size);
 						resolve(rdfStore);
 					}).catch((reason) => {
@@ -169,7 +159,6 @@ function loadRDFOxigraph(data: string, rdfStore: oxigraph.Store, mediaType: stri
 					});
 			} else {
 				rdfStore.load(data, mediaType, undefined, undefined);
-				console.log(rdfStore);
 				outputChannel.appendLine("Successfully parsed: Statements in the graph: " + rdfStore.size);
 				resolve(rdfStore);
 			}
@@ -191,7 +180,7 @@ async function runQuery(query: string, documentText: string, mediaType: string):
 	}).catch((reason) => {
 		return [reason];
 	}).finally(() => {
-		console.log("Finally...");
+		outputChannel.appendLine("Ran query");
 	});
 
 	return result;
@@ -214,7 +203,7 @@ async function getView(documentText: string, mediaType: string, showTypes: boole
 	}).catch((reason) => {
 		result = {status: false, message: reason, mediaType: ""};
 	}).finally(() => {
-		console.log("Finally...");
+		outputChannel.appendLine("D3 Graph built");
 	});
 	return result;
 }
@@ -553,7 +542,6 @@ async function getJSONwithEmbeddedContext(json_document: vscode.TextDocument) {
 		if (context.constructor === Array) {
 			let expandedContextArray:any[] = [];
 			for (let c in context) {
-				console.log(context[c]);
 				// If the context is a string, and does not start with http, it is likely to be a file.
 				// Let's try to load it.
 				if (typeof context[c] == 'string' && loadLocalContexts && !context[c].toLowerCase().startsWith("http")) {
@@ -562,14 +550,13 @@ async function getJSONwithEmbeddedContext(json_document: vscode.TextDocument) {
 					expandedContextArray.push(JSON.parse(json_context_doc.getText()));
 					outputChannel.appendLine(`Including context from ${json_context_path}`);
 				} else if (typeof context[c] == 'string' && prefetchRemoteContexts && context[c].toLowerCase().startsWith("http") ){
-					console.log("Fetching context from URL " + context[c]);
+					outputChannel.appendLine("Fetching context from URL: " + context[c]);
 					try {
 						const response = await axios({
 							method: 'get',
 							url: context[c],
 							headers: { Accept: "application/ld+json;profile=http://www.w3.org/ns/json-ld#context"}
 						})
-						console.log(response);
 
 						if(response.headers['content-type'] != 'application/json' && response.headers['content-type'] != 'text/json' && response.headers['content-type'] != 'application/ld+json') {
 							throw new Error("Service did not return JSON content type: " + response.headers['content-type']);
@@ -588,7 +575,6 @@ async function getJSONwithEmbeddedContext(json_document: vscode.TextDocument) {
 					} catch (e: any){
 						outputChannel.appendLine("Could not preload context from " + context[c]);
 						outputChannel.appendLine(e.message);
-						console.log(e);
 						if (!gracefullyIgnoreFailedPrefetch) {
 							expandedContextArray.push(context[c]);
 						} else {
@@ -597,7 +583,7 @@ async function getJSONwithEmbeddedContext(json_document: vscode.TextDocument) {
 						
 					}
 				} else if (typeof context[c] == 'string' && context[c].toLowerCase().startsWith("http") ) {
-						console.log("Adding proxy");
+						// TODO: add ability to inject proxy URL here
 						expandedContextArray.push(context[c]);
 				} else {
 					// Just passing through the value in the context array, as it may be an object or another array.
@@ -838,24 +824,22 @@ export function activate(context: vscode.ExtensionContext) {
 					let shaclFileURIs = await vscode.window.showOpenDialog(options);
 					if (!shaclFileURIs) {
 						throw Error("No file selected!");
-				}
+					}
 					shaclFileURI = shaclFileURIs[0];
 				}
 
-				
+				outputChannel.appendLine(`Loading SHACL shapes from ${shaclFileURI}`);
 				const shaclDocument = await vscode.workspace.openTextDocument(shaclFileURI);
 				const result = await validate(document, shaclDocument);
 				
-				console.log(result);
 				// No failures? File is valid!
 				if(result.failures.length==0) {
-					console.log("File is valid");
 					outputChannel.appendLine("Congratulations, your graph is valid!");
 					return;
 				} 
 				// If we do have failures, let's show them.
-				console.log("File is not valid");
-				vscode.window.showWarningMessage("Alas, your graph is not valid.");
+				outputChannel.appendLine(`Alas, your graph does not conform to the SHACL shapes defined in ${shaclFileURI}`);
+				vscode.window.showWarningMessage(`Alas, your graph does not conform to the SHACL shapes defined in ${shaclFileURI}`);
 
 				const variables = ["node", "message", "shape", "property", "severity"];
 				const data = result.failures;
@@ -1155,22 +1139,26 @@ async function validate(document: vscode.TextDocument, shaclDocument: vscode.Tex
 	let store = new $rdf.Store();
 	let shapesStore = new $rdf.Store();
 
+	outputChannel.appendLine("Loading data into graph");
 	await loadRDFrdflib(doc.data, store, doc.fromMediaType);
 	let data = await serializeRDF(store, 'application/ld+json');
 
+	outputChannel.appendLine("Loading SHACL shape data into graph");
 	await loadRDFrdflib(shapes.data, shapesStore, shapes.fromMediaType);
 	let shapesData = await serializeRDF(shapesStore, 'text/turtle');
 
 	try {
+		outputChannel.appendLine("Validating data graph against shapes graph");
 		const validator = new ShaclValidator(shapesData, {annotations: {"node": "http://www.w3.org/ns/shacl#focusNode", "label": "http://www.w3.org/2000/01/rdf-schema#label"}});
 		let report = await validator.validate(data, {baseUrl: "http://example.org/test"});
+		outputChannel.appendLine("Validation completed");
 		return(report);
 	} catch (e:any) {
 		outputChannel.appendLine("SHACL Validator threw an error");
 		outputChannel.appendLine(e.message);
 		return {failures: [{message: "SHACL Validator threw an error: "+e.message, shape: "N/A", node: "N/A", severity: "error", property: "N/A"}]};
 	}
-
+	
   }
 
 

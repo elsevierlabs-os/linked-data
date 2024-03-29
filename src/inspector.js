@@ -1,6 +1,6 @@
 import * as d3 from "d3";
 import { default as d3tip } from "d3-tip";
-import { on } from "events";
+// import { on } from "events";
 
 document.addEventListener('DOMContentLoaded', function() {
     const dataContents = window.document.getElementById('data').innerText;
