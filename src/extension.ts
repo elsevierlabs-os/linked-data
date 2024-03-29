@@ -795,7 +795,7 @@ export function activate(context: vscode.ExtensionContext) {
 				let document = editor.document ;
 
 				// Try to obtain YAML configuration from comments at the top of the query 
-				const re = /^(#.+\n)+/;
+				const re = /^(#.+\r?\n)+/;
 				const m = document.getText().match(re);
 				var shaclFileName;
 
@@ -915,7 +915,7 @@ export function activate(context: vscode.ExtensionContext) {
 				const query = document.getText();
 
 				// Try to obtain YAML configuration from comments at the top of the query 
-				const re = /^(#.+\n)+/;
+				const re = /^(#.+\r?\n)+/;
 				const m = query.match(re);
 				var dataFileName;
 
