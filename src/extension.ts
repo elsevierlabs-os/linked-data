@@ -149,7 +149,7 @@ function loadRDFOxigraph(data: string, rdfStore: oxigraph.Store, mediaType: stri
 				outputChannel.appendLine("Converting to JSON-LD to NQuads to preserve named graphs");
 				JSONLDtoNQuads(data)
 					.then(nquads => {
-						rdfStore.load(nquads, mediaType, undefined, undefined);
+						rdfStore.load(nquads, "application/n-quads", undefined, undefined);
 						outputChannel.appendLine("Successfully parsed: Statements in the graph: " + rdfStore.size);
 						resolve(rdfStore);
 					}).catch((reason) => {
