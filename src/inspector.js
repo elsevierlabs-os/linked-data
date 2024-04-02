@@ -71,6 +71,18 @@ function ForceGraph({nodes, links}, // a dictionary with nodes and links arrays.
     const STAR = "M14.615,4.928c0.487-0.986,1.284-0.986,1.771,0l2.249,4.554c0.486,0.986,1.775,1.923,2.864,2.081l5.024,0.73c1.089,0.158,1.335,0.916,0.547,1.684l-3.636,3.544c-0.788,0.769-1.28,2.283-1.095,3.368l0.859,5.004c0.186,1.085-0.459,1.553-1.433,1.041l-4.495-2.363c-0.974-0.512-2.567-0.512-3.541,0l-4.495,2.363c-0.974,0.512-1.618,0.044-1.432-1.041l0.858-5.004c0.186-1.085-0.307-2.6-1.094-3.368L3.93,13.977c-0.788-0.768-0.542-1.525,0.547-1.684l5.026-0.73c1.088-0.158,2.377-1.095,2.864-2.081L14.615,4.928z";
 
 
+    // Default number of ticks per render (render every tick)
+    var ticksPerRender = 1;
+    // Progressively less smooth simulation.
+    if(nodes.length > 500 ){
+        ticksPerRender = 3
+    } else if (nodes.length > 1000 ) {
+        ticksPerRender = 5
+    } else if (nodes.length > 5000 ) {
+        ticksPerRender = 10
+    }
+    console.log("Ticks per render = " + ticksPerRender);
+
     // The force directed simulation
     var simulation;
     
@@ -164,7 +176,6 @@ function ForceGraph({nodes, links}, // a dictionary with nodes and links arrays.
 
     function update() {
         if (simulation) {
-            console.log("Simulation stopped");
             simulation.stop();
         }
         var nodes_object = nodes.reduce(
@@ -177,8 +188,8 @@ function ForceGraph({nodes, links}, // a dictionary with nodes and links arrays.
         // This preserves positions in case the node object was already visible
         visible_nodes = [];
         for(let node of nodes) {
-            if (expand[node.group]) {
-                if (previously_visible_nodes_object[node.id]) {
+            if (node.group in expand) {
+                if (node.id in previously_visible_nodes_object) {
                     visible_nodes.push(previously_visible_nodes_object[node.id]);
                 } else {
                     // Initialize new child nodes to the position of the group node.
@@ -189,13 +200,10 @@ function ForceGraph({nodes, links}, // a dictionary with nodes and links arrays.
                     // } else {
                     //     group_node = nodes_object[node.group];
                     // }
-                    let group_node = previously_visible_nodes_object[node.group] ? previously_visible_nodes_object[node.group] : nodes_object[node.group];
+                    const group_node = node.group in previously_visible_nodes_object ? previously_visible_nodes_object[node.group] : nodes_object[node.group];
                     
-                    console.log(group_node);
                     node.x = group_node.x+10;
                     node.y = group_node.y+10;
-                    console.log(node.x);
-                    console.log(node.y);
 
                     visible_nodes.push(node);
                 }
@@ -389,6 +397,12 @@ function ForceGraph({nodes, links}, // a dictionary with nodes and links arrays.
      * Simulation ticks
      */
     function ticked() {
+        
+
+        for(var i = 0; i < ticksPerRender; i++){
+            simulation.tick();
+        }
+
         if (!hull.empty()) {
             hull.data(computeGraphHulls(visible_links, visible_nodes))
                 .attr("d", drawHull);
@@ -404,6 +418,7 @@ function ForceGraph({nodes, links}, // a dictionary with nodes and links arrays.
         node
             .attr("cx", d => d.x)
             .attr("cy", d => d.y);
+
     }
 
     const reducer = (accumulator, current) => `${accumulator}<tr><th><span>${current.property}</span></th><td>"${current.value}"</td>`;
