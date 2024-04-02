@@ -8,7 +8,7 @@
   },
   "repository": "https://github.com/elsevierlabs-os/linked-data",
   "description": "This extension provides shortcuts for standard Linked Data operations, format conversions, validation, querying and a graph visualization.",
-  "version": "1.1.1",
+  "version": "1.1.2",
   "icon": "media/img/lde-icon.png",
   "engines": {
     "vscode": "^1.75.0"
