@@ -706,7 +706,7 @@ export function activate(context: vscode.ExtensionContext) {
 				}
 
 				const frameDocument = await vscode.workspace.openTextDocument(frameFileURI[0]);
-				const frameJSON = await getJSONwithEmbeddedContext(document);
+				const frameJSON = await getJSONwithEmbeddedContext(frameDocument);
 				// const frameJSON = JSON.parse(frameDocument.getText());
 	
 				const framed = await jsonld.frame(documentJSON, frameJSON);
