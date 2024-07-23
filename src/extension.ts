@@ -954,14 +954,22 @@ export function activate(context: vscode.ExtensionContext) {
 					var data = [];
 
 					if (result.length > 0) {
-						for(let r of result){
-							let stringresult = [];
-							for(let v of r.keys()){ // variables are key in the map
-								
+						// First populate the list of variables, otherwise we might miss some.
+						for(let r of result) {
+							for(let v of r.keys()) {
 								if (!variables.includes(v)) {
 									variables.push(v);
 								}
-								if (r.get(v).value != undefined) {
+							}
+						}
+
+						for(let r of result){
+							console.log(JSON.stringify(r))
+							let stringresult = [];
+							for(let v of variables){ // variables are key in the map, we hope.
+								
+
+								if (r.get(v) != undefined && r.get(v).value != undefined) {
 									stringresult.push(r.get(v).value);
 								} else {
 									stringresult.push("");
@@ -970,7 +978,6 @@ export function activate(context: vscode.ExtensionContext) {
 							}
 							data.push(stringresult);
 						}
-						
 					}
 
 					// Build a CSV file
