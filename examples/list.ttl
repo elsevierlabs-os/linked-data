@@ -1,0 +1,4 @@
+# This example contains an rdfList
+@prefix ex: <https://example.com/> .
+
+ex:A ex:hasList (ex:B ex:C ex:D) .

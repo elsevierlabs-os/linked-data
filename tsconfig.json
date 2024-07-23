@@ -1,14 +1,14 @@
 {
 	"compilerOptions": {
-		"module": "CommonJS",
-		"target": "es2019",
+		"module": "commonjs",
+		"target": "es6",
 		"outDir": "out",
 		"lib": [
-			"es2019", "DOM"
+			"es6", "dom"
 		],
 		"sourceMap": true,
 		"rootDir": "src",
-		"esModuleInterop": true,
+		// "esModuleInterop": true,
 		"strict": true   /* enable all strict type-checking options */
 		/* Additional Checks */
 		// "noImplicitReturns": true, /* Report error when not all code paths in function return a value. */
