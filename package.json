@@ -8,7 +8,7 @@
   },
   "repository": "https://github.com/elsevierlabs-os/linked-data",
   "description": "This extension provides shortcuts for standard Linked Data operations, format conversions, validation, querying and a graph visualization.",
-  "version": "1.2.0",
+  "version": "1.2.2",
   "icon": "media/img/lde-icon.png",
   "engines": {
     "vscode": "^1.75.0"
@@ -16,7 +16,7 @@
   "categories": [
     "Other"
   ],
-  "main": "./out/extension.js",
+  "main": "./dist/extension.js",
   "contributes": {
     "menus": {
       "commandPalette": [
@@ -210,15 +210,18 @@
     "pretest": "npm run compile && npm run lint",
     "lint": "eslint src --ext ts",
     "build": "webpack",
-    "vscode:prepublishES": "npm run esbuild-base -- --minify",
+    "vscode:prepublishES": "npm run esbuild-minify",
     "vscode:prepublish": "npm run compile",
-    "esbuild-base": "npm run build && esbuild ./src/extension.ts --bundle --outfile=dist/extension.js --external:vscode --format=cjs --platform=node",
-    "esbuild": "npm run esbuild-base -- --sourcemap",
-    "esbuild-watch": "npm run esbuild-base -- --sourcemap --watch",
-    "compile": "npm run build && tsc --sourceMap -p ./",
+    "esbuild-base-cjs": "esbuild ./src/extension.ts --bundle --outfile=dist/extension.js --external:vscode --format=cjs --platform=node --target=node20.15.1",
+    "esbuild-base": "esbuild ./src/extension.ts --bundle --outfile=dist/extension.js --external:vscode --format=esm --platform=node --target=node20.15.1",
+    "esbuild": "npm run build && npm run esbuild-base -- --sourcemap",
+    "esbuild-minify": "npm run build && npm run esbuild-base -- --minify",
+    "esbuild-watch": "npm run build && npm run esbuild-base -- --sourcemap --watch",
+    "compile": "npm run build && tsc -p ./",
     "watch": "tsc --sourceMap -watch -p ./"
   },
   "devDependencies": {
+    "@babel/plugin-syntax-dynamic-import": "^7.8.3",
     "@babel/preset-env": "^7.24.8",
     "@types/glob": "^7.1.3",
     "@types/mocha": "^8.2.2",
@@ -244,12 +247,14 @@
     "webpack-cli": "^4.10.0"
   },
   "dependencies": {
+    "@rdfjs/formats": "^4.0.0",
     "@types/js-yaml": "^4.0.9",
     "axios": "^1.7.2",
     "jsonld": "^8.3.2",
     "oxigraph": "^0.3.14",
     "path": "^0.12.7",
     "schemarama": "https://gitpkg.now.sh/RinkeHoekstra/schemarama/core?ISSUE-48",
+    "stream-chunks": "^1.0.0",
     "yaml": "^2.4.5"
   },
   "extensionDependencies": [

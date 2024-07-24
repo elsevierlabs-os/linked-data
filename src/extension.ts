@@ -7,7 +7,9 @@ import axios from 'axios';
 const jsonld = require('jsonld');
 const ShaclValidator = require('schemarama/shaclValidator').Validator;
 import { Store, Quad, NamedNode, BlankNode, Literal, DefaultGraph as DefaultGraphOxi, namedNode } from 'oxigraph/node.js';
-import { prefixes } from './prefixes';
+import { prefixes } from './prefixes.js';
+import { Readable } from 'stream';
+
 
 const STRICT_NQUADS_REGEX = /(<\S+?>|_:\S+)?\s+(<\S+?>)\s+(<\S+?>|_:\S+?|(".*"(^^<.+>)?))\s+(<\S+?>|_:\S+?)\s*\.(\s*#.+)?/g;
 
@@ -200,6 +202,54 @@ async function toSerialization(documentText: string, fromMediaType: string, toMe
 	});
 	return result;
 }
+
+
+function streamToString(stream:Readable) {
+    const chunks:Array<any> = [];
+    return new Promise((resolve, reject) => {
+		stream.on('prefix', (chunk) => console.log(chunk));
+        stream.on('data', (chunk) => chunks.push(Buffer.from(chunk)));
+        stream.on('error', (err) => reject(err));
+        stream.on('end', () => resolve(Buffer.concat(chunks).toString('utf8')));
+    });
+}
+
+async function toSerializationRDFJS(documentText: string, fromMediaType: string, toMediaType: string): Promise<GVResponse> {
+	console.log("Attempting dynamic import")
+	const formatsModule = "../node_modules/@rdfjs/formats/index.js";
+	// const formatsModule = "../node_modules/@rdfjs/formats/pretty.js";
+	// const { PrettyJsonLdSerializer} = await import(formatsModule);
+	// console.log("Imported prettyjson")
+	const formats = await import(formatsModule);
+	console.log(formats.default);
+	console.log("Imported formats")
+	var result:GVResponse = {status: false, message: "initialized", mediaType: "unknown"};
+	outputChannel.appendLine(`Starting conversion from ${fromMediaType} to ${toMediaType}...`);
+
+
+
+	console.log("Before try")
+	try {
+		console.log("Before readable.from")
+		const input:any = Readable.from([documentText])
+		console.log("Before parsing")
+		console.log(formats.default.parsers);
+		const quads:any = formats.default.parsers.import(fromMediaType, input)
+
+		console.log(`Converting to ${toMediaType}`);
+		const output = await streamToString(formats.default.serializers.import(toMediaType, quads));
+	
+		result = {status:true, message: output, mediaType: toMediaType} 
+		return(result);
+	} catch(err:any) {
+		outputChannel.appendLine(`Failed to convert from ${fromMediaType} to ${toMediaType}!` + err);
+		console.log(err)
+		result = {status:false, message: err, mediaType: ""} 
+		return result
+	}
+}
+
+
 
 class Attribute {
 	property: string = "";
@@ -711,6 +761,7 @@ export function activate(context: vscode.ExtensionContext) {
 				let targetLanguage:string = "turtle";
 				await doFormatConversion(document, toMediaType, targetLanguage);
 			} catch(e: any) {
+				console.log(e);
 				outputChannel.appendLine(e.message);
 			}
 			
@@ -727,6 +778,7 @@ export function activate(context: vscode.ExtensionContext) {
 				let targetLanguage:string = "turtle";
 				await doFormatConversion(document, toMediaType, targetLanguage);
 			} catch(e: any) {
+				console.log(e);
 				outputChannel.appendLine(e.message);
 			}
 			
@@ -743,6 +795,7 @@ export function activate(context: vscode.ExtensionContext) {
 				let targetLanguage:string = "xml";
 				await doFormatConversion(document, toMediaType, targetLanguage);
 			} catch(e: any) {
+				console.log(e);
 				outputChannel.appendLine(e.message);
 			}
 			
@@ -759,6 +812,7 @@ export function activate(context: vscode.ExtensionContext) {
 				let targetLanguage:string = "json";
 				await doFormatConversion(document, toMediaType, targetLanguage);
 			} catch(e: any) {
+				console.log(e);
 				outputChannel.appendLine(e.message);
 			}
 			
@@ -1085,7 +1139,9 @@ async function doFormatConversion(document: vscode.TextDocument, toMediaType: st
 		return;
 	}
 
-	const result = await toSerialization(data, fromMediaType, toMediaType);
+	// const result = await toSerialization(data, fromMediaType, toMediaType);
+	const result = await toSerializationRDFJS(data, fromMediaType, toMediaType);
+
 	if (result.status) {
 		let doc = await vscode.workspace.openTextDocument({ content: result.message, language: targetLanguage });
 		await vscode.window.showTextDocument(doc, { preview: false });
