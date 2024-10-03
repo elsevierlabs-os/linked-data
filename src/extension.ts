@@ -114,7 +114,7 @@ function loadRDFOxigraph(data: string, oxiStore: Store, mediaType: string) {
 		try {
 
 			if (mediaType == "application/ld+json") {
-				outputChannel.appendLine("Converting to JSON-LD to NQuads to preserve named graphs");
+				outputChannel.appendLine("Converting JSON-LD to NQuads to preserve named graphs");
 				JSONLDtoNQuads(data)
 					.then(nquads => {
 						oxiStore.load(nquads, "application/n-quads", undefined, undefined);
