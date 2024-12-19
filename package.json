@@ -207,16 +207,14 @@
     ]
   },
   "scripts": {
-    "pretest": "npm run compile && npm run lint",
-    "lint": "eslint src --ext ts",
-    "build": "webpack",
-    "vscode:prepublishES": "npm run esbuild-base -- --minify",
-    "vscode:prepublish": "npm run compile",
-    "esbuild-base": "npm run build && esbuild ./src/extension.ts --bundle --outfile=dist/extension.js --external:vscode --format=cjs --platform=node",
-    "esbuild": "npm run esbuild-base -- --sourcemap",
-    "esbuild-watch": "npm run esbuild-base -- --sourcemap --watch",
-    "compile": "npm run build && tsc --sourceMap -p ./",
-    "watch": "tsc --sourceMap -watch -p ./"
+    "compile": "webpack && npm run check-types && node esbuild.js",
+    "check-types": "tsc --noEmit",
+    "watch": "npm-run-all -p watch:*",
+    "watch:esbuild": "node esbuild.js --watch",
+    "watch:tsc": "tsc --noEmit --watch --project tsconfig.json",
+    "watch:webpack": "webpack --watch",
+    "vscode:prepublish": "npm run package",
+    "package": "webpack && npm run check-types && node esbuild.js --production"
   },
   "devDependencies": {
     "@babel/preset-env": "^7.24.8",
