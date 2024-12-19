@@ -15,18 +15,20 @@ module.exports = {
         use: ["style-loader", "css-loader"],
       },
       {
-        test: /\.m?js$/,
+        test: /\.(?:js|mjs|cjs)$/,
         exclude: /node_modules/,
         use: {
-          loader: "babel-loader",
+          loader: 'babel-loader',
           options: {
-            presets: ['@babel/preset-env']
+            presets: [
+              ['@babel/preset-env', { targets: "defaults", modules: "commonjs"}]
+            ]
           }
         }
       }
     ],
   },
   optimization: {
-    minimize: true
+    minimize: false
   },
 };

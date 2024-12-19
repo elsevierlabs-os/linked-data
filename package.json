@@ -2,6 +2,7 @@
   "name": "linked-data",
   "displayName": "Linked Data Extension",
   "publisher": "Elsevier",
+  "type": "commonjs",
   "author": {
     "name": "Rinke Hoekstra",
     "email": "r.hoekstra@elsevier.com"
@@ -207,25 +208,23 @@
     ]
   },
   "scripts": {
-    "pretest": "npm run compile && npm run lint",
-    "lint": "eslint src --ext ts",
-    "build": "webpack",
-    "vscode:prepublishES": "npm run esbuild-minify",
-    "vscode:prepublish": "npm run compile",
-    "esbuild-base-cjs": "esbuild ./src/extension.ts --bundle --outfile=dist/extension.js --external:vscode --format=cjs --platform=node --target=node20.15.1",
-    "esbuild-base": "esbuild ./src/extension.ts --bundle --outfile=dist/extension.js --external:vscode --format=esm --platform=node --target=node20.15.1",
-    "esbuild": "npm run build && npm run esbuild-base -- --sourcemap",
-    "esbuild-minify": "npm run build && npm run esbuild-base -- --minify",
-    "esbuild-watch": "npm run build && npm run esbuild-base -- --sourcemap --watch",
-    "compile": "npm run build && tsc -p ./",
-    "watch": "tsc --sourceMap -watch -p ./"
+    "compile": "webpack && npm run check-types && node esbuild.js",
+    "check-types": "tsc --noEmit",
+    "watch": "npm-run-all -p watch:*",
+    "watch:esbuild": "node esbuild.js --watch",
+    "watch:tsc": "tsc --noEmit --watch --project tsconfig.json",
+    "watch:webpack": "webpack --watch",
+    "vscode:prepublish": "npm run package",
+    "package": "webpack && npm run check-types && node esbuild.js --production"
   },
   "devDependencies": {
     "@babel/plugin-syntax-dynamic-import": "^7.8.3",
     "@babel/preset-env": "^7.24.8",
     "@types/glob": "^7.1.3",
+    "@types/jsonld": "^1.5.15",
     "@types/mocha": "^8.2.2",
     "@types/node": "14.x",
+    "@types/rdfjs__formats": "^4.0.1",
     "@types/text-encoding": "^0.0.36",
     "@types/vscode": "^1.59.0",
     "@typescript-eslint/eslint-plugin": "^4.26.0",
@@ -239,6 +238,7 @@
     "eslint": "^7.27.0",
     "glob": "^7.1.7",
     "mocha": "^10.0.0",
+    "npm-run-all": "^4.1.5",
     "style-loader": "^3.3.1",
     "typed-rest-client": "^1.5.0",
     "typescript": "^4.3.2",
