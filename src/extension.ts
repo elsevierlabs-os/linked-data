@@ -1,14 +1,19 @@
-// The module 'vscode' contains the VS Code extensibility API
-// Import the module and reference it with the alias vscode in your code below
+
 import * as vscode from 'vscode';
 import * as path from 'path';
 import { parse } from 'yaml';
 import axios from 'axios';
-const jsonld = require('jsonld');
-const ShaclValidator = require('schemarama/shaclValidator').Validator;
+// const jsonld = import('jsonld');
+import { toRDF, fromRDF, compact, expand, flatten, frame } from  'jsonld'
+// const ShaclValidator = import('schemarama/shaclValidator').Validator;
+import { default as formats } from '@rdfjs/formats'
+import { Validator as ShaclValidator} from 'schemarama/shaclValidator';
 import { Store, Quad, NamedNode, BlankNode, Literal, DefaultGraph as DefaultGraphOxi, namedNode } from 'oxigraph/node.js';
 import { prefixes } from './prefixes.js';
 import { Readable } from 'stream';
+
+
+
 
 
 const STRICT_NQUADS_REGEX = /(<\S+?>|_:\S+)?\s+(<\S+?>)\s+(<\S+?>|_:\S+?|(".*"(^^<.+>)?))\s+(<\S+?>|_:\S+?)\s*\.(\s*#.+)?/g;
@@ -69,7 +74,7 @@ async function JSONLDtoNQuads(data: string){
 	const data_object = JSON.parse(data);
 	
 	try {
-		return await jsonld.toRDF(data_object, {format: 'application/n-quads'});
+		return await toRDF(data_object, {format: 'application/n-quads'});
 	} catch (err:any) {
 		outputChannel.appendLine("Could not convert JSON-LD to NQuads");
 		outputChannel.appendLine(err);
@@ -79,6 +84,18 @@ async function JSONLDtoNQuads(data: string){
 }
 
 
+/**
+ * Serializes an RDF store using Oxigraph.
+ *
+ * @param store - The RDF store to serialize.
+ * @param mediaType - The media type to serialize the store to. Defaults to "application/ld+json".
+ * @returns A promise that resolves to the serialized RDF as a string, or undefined if serialization fails.
+ *
+ * @remarks
+ * - If the `mediaType` is "application/ld+json", the store is first dumped to "application/n-quads" and then converted to JSON-LD.
+ * - If the `mediaType` is not specified, it defaults to "application/ld+json".
+ * - Logs an error message and rejects the promise if serialization fails.
+ */
 function serializeRDFOxigraph(store: Store, mediaType: string){
 	if(mediaType == undefined) {
 		mediaType = "application/ld+json";
@@ -89,7 +106,7 @@ function serializeRDFOxigraph(store: Store, mediaType: string){
 			console.log("oxigraph serialization");
 			if(mediaType == 'application/ld+json') {
 				let nquadsResult = store.dump("application/n-quads", null); 
-				jsonld.fromRDF(nquadsResult, {format: 'application/n-quads'}).then((jsonldResult: any) => {
+				fromRDF(nquadsResult, {format: 'application/n-quads'}).then((jsonldResult: any) => {
 					var result = JSON.stringify(jsonldResult as string, undefined, 4);
 					resolve(result);
 				});
@@ -107,6 +124,16 @@ function serializeRDFOxigraph(store: Store, mediaType: string){
 
 }
 
+/**
+ * Loads RDF data into an Oxigraph store.
+ *
+ * @param data - The RDF data to be loaded as a string.
+ * @param oxiStore - The Oxigraph store instance where the data will be loaded.
+ * @param mediaType - The media type of the RDF data (e.g., "application/ld+json", "application/n-quads").
+ *                    If not provided, defaults to "application/ld+json".
+ * @returns A promise that resolves to the Oxigraph store after the data has been successfully loaded.
+ *          If an error occurs during loading, the promise is rejected with the error reason.
+ */
 function loadRDFOxigraph(data: string, oxiStore: Store, mediaType: string) {
 	if(mediaType == undefined) {
 		mediaType = "application/ld+json";
@@ -119,7 +146,7 @@ function loadRDFOxigraph(data: string, oxiStore: Store, mediaType: string) {
 				outputChannel.appendLine("Converting to JSON-LD to NQuads to preserve named graphs");
 				JSONLDtoNQuads(data)
 					.then(nquads => {
-						oxiStore.load(nquads, "application/n-quads", undefined, undefined);
+						oxiStore.load(String(nquads), "application/n-quads", undefined, undefined);
 						outputChannel.appendLine("Successfully parsed: Statements in the graph: " + oxiStore.size);
 						resolve(oxiStore);
 					}).catch((reason) => {
@@ -141,6 +168,14 @@ function loadRDFOxigraph(data: string, oxiStore: Store, mediaType: string) {
 }
 
 
+/**
+ * Executes a SPARQL query on the provided RDF document.
+ *
+ * @param query - The SPARQL query string to be executed.
+ * @param documentText - The RDF document content as a string.
+ * @param mediaType - The media type of the RDF document (e.g., "application/ld+json").
+ * @returns A promise that resolves to an array of query results.
+ */
 async function runQuery(query: string, documentText: string, mediaType: string): Promise<any[]> {
 	var oxiStore = new Store();
 	var result:any[] = [];
@@ -158,7 +193,15 @@ async function runQuery(query: string, documentText: string, mediaType: string):
 
 
 
-async function getView(documentText: string, mediaType: string, showTypes: boolean): Promise<GVResponse> {
+/**
+ * Generates a D3.js graph from the provided RDF document text.
+ *
+ * @param documentText - The RDF document text to be processed.
+ * @param mediaType - The media type of the RDF document (e.g., "application/ld+json").
+ * @param showTypes - A boolean indicating whether to show types in the graph.
+ * @returns A promise that resolves to a `GVResponse` object containing the status, message, and media type of the operation.
+ */
+async function getD3jsGraph(documentText: string, mediaType: string, showTypes: boolean): Promise<GVResponse> {
 	var store = new Store()
 	
 	var result:GVResponse = {status: false, message: "initialized", mediaType: "unknown"};
@@ -214,15 +257,16 @@ function streamToString(stream:Readable) {
     });
 }
 
+
 async function toSerializationRDFJS(documentText: string, fromMediaType: string, toMediaType: string): Promise<GVResponse> {
 	console.log("Attempting dynamic import")
-	const formatsModule = "../node_modules/@rdfjs/formats/index.js";
-	// const formatsModule = "../node_modules/@rdfjs/formats/pretty.js";
-	// const { PrettyJsonLdSerializer} = await import(formatsModule);
-	// console.log("Imported prettyjson")
-	const formats = await import(formatsModule);
-	console.log(formats.default);
-	console.log("Imported formats")
+	// const formatsModule = "../node_modules/@rdfjs/formats/index.js";
+	// // const formatsModule = "../node_modules/@rdfjs/formats/pretty.js";
+	// // const { PrettyJsonLdSerializer} = await import(formatsModule);
+	// // console.log("Imported prettyjson")
+	// const formats = await import(formatsModule);
+	// console.log(formats.default);
+	// console.log("Imported formats")
 	var result:GVResponse = {status: false, message: "initialized", mediaType: "unknown"};
 	outputChannel.appendLine(`Starting conversion from ${fromMediaType} to ${toMediaType}...`);
 
@@ -233,11 +277,18 @@ async function toSerializationRDFJS(documentText: string, fromMediaType: string,
 		console.log("Before readable.from")
 		const input:any = Readable.from([documentText])
 		console.log("Before parsing")
-		console.log(formats.default.parsers);
-		const quads:any = formats.default.parsers.import(fromMediaType, input)
+		console.log(formats.parsers);
+		const quads:any = formats.parsers.import(fromMediaType, input)
 
 		console.log(`Converting to ${toMediaType}`);
-		const output = await streamToString(formats.default.serializers.import(toMediaType, quads));
+		const serializerStream = formats.serializers.import(toMediaType, quads);
+		var output;
+		if (serializerStream) {
+			output = await streamToString(serializerStream as unknown as Readable);
+			result = {status:true, message: output, mediaType: toMediaType};
+		} else {
+			throw new Error(`Failed to create serializer stream for media type: ${toMediaType}`);
+		}
 	
 		result = {status:true, message: output, mediaType: toMediaType} 
 		return(result);
@@ -471,7 +522,7 @@ async function updateGraphView(document:vscode.TextDocument, extensionUri: vscod
 		outputChannel.appendLine("Hiding nodes and edges for types");
 	} 
 	
-	await getView(data, fromMediaType, showTypes as boolean).then((result) => {
+	await getD3jsGraph(data, fromMediaType, showTypes as boolean).then((result) => {
 		if(result.status){
 			// Create and show a new webview
 			const panel = vscode.window.createWebviewPanel(
@@ -662,7 +713,7 @@ export function activate(context: vscode.ExtensionContext) {
 				let document = editor.document ;
 
 				const documentJSON = await getJSONwithEmbeddedContext(document);
-				const compacted = await jsonld.compact(documentJSON, documentJSON);
+				const compacted = await compact(documentJSON, documentJSON);
 				const compactedString = JSON.stringify(compacted, null, 2);
 				
 				let doc = await vscode.workspace.openTextDocument({content: compactedString, language: "json"});
@@ -679,7 +730,7 @@ export function activate(context: vscode.ExtensionContext) {
 			try {	
 				let document = editor.document ;
 				const documentJSON = await getJSONwithEmbeddedContext(document);
-				const expanded = await jsonld.expand(documentJSON);
+				const expanded = await expand(documentJSON);
 				const expandedString = JSON.stringify(expanded, null, 2);
 				let doc = await vscode.workspace.openTextDocument({content: expandedString, language: "json"});
 				await vscode.window.showTextDocument(doc, {preview: false, viewColumn: vscode.ViewColumn.Beside});
@@ -703,7 +754,7 @@ export function activate(context: vscode.ExtensionContext) {
 
 				const documentJSON = await getJSONwithEmbeddedContext(document);
 				const documentName = document.fileName;
-				const flattened = await jsonld.flatten(documentJSON);
+				const flattened = await flatten(documentJSON);
 				const flattenedString = JSON.stringify(flattened, null, 2);
 
 				let doc = await vscode.workspace.openTextDocument({content: flattenedString, language: "json"});
@@ -738,7 +789,7 @@ export function activate(context: vscode.ExtensionContext) {
 				const frameJSON = await getJSONwithEmbeddedContext(frameDocument);
 				// const frameJSON = JSON.parse(frameDocument.getText());
 	
-				const framed = await jsonld.frame(documentJSON, frameJSON);
+				const framed = await frame(documentJSON, frameJSON);
 				const framedString = JSON.stringify(framed, null, 2);
 				
 				let doc = await vscode.workspace.openTextDocument({content: framedString, language: "json"});
