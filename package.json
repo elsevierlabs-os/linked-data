@@ -244,7 +244,7 @@
   "dependencies": {
     "@types/js-yaml": "^4.0.9",
     "axios": "^1.7.2",
-    "jsonld": "^8.3.2",
+    "jsonld": "RinkeHoekstra/jsonld.js",
     "oxigraph": "^0.3.14",
     "path": "^0.12.7",
     "schemarama": "https://gitpkg.now.sh/RinkeHoekstra/schemarama/core?ISSUE-48",
