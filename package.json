@@ -16,7 +16,7 @@
   "categories": [
     "Other"
   ],
-  "main": "./out/extension.js",
+  "main": "./dist/extension.js",
   "contributes": {
     "menus": {
       "commandPalette": [
@@ -207,21 +207,21 @@
     ]
   },
   "scripts": {
-    "pretest": "npm run compile && npm run lint",
-    "lint": "eslint src --ext ts",
-    "build": "webpack",
-    "vscode:prepublishES": "npm run esbuild-base -- --minify",
-    "vscode:prepublish": "npm run compile",
-    "esbuild-base": "npm run build && esbuild ./src/extension.ts --bundle --outfile=dist/extension.js --external:vscode --format=cjs --platform=node",
-    "esbuild": "npm run esbuild-base -- --sourcemap",
-    "esbuild-watch": "npm run esbuild-base -- --sourcemap --watch",
-    "compile": "npm run build && tsc --sourceMap -p ./",
-    "watch": "tsc --sourceMap -watch -p ./"
+    "compile": "webpack && npm run check-types && node esbuild.js && npm run postbuild",
+    "check-types": "tsc --noEmit",
+    "watch": "npm run postbuild && npm-run-all -p watch:*",
+    "watch:esbuild": "node esbuild.js --watch",
+    "watch:tsc": "tsc --noEmit --watch --project tsconfig.json",
+    "watch:webpack": "webpack --watch",
+    "vscode:prepublish": "npm run package",
+    "package": "webpack && npm run check-types && cp node_modules/oxigraph/node_bg.wasm dist/node_bg.wasm && node esbuild.js --production",
+    "postbuild": "cp node_modules/oxigraph/node_bg.wasm dist/node_bg.wasm"
   },
   "devDependencies": {
     "@babel/preset-env": "^7.24.8",
     "@types/glob": "^7.1.3",
     "@types/mocha": "^8.2.2",
+    "@types/n3": "^1.26.0",
     "@types/node": "14.x",
     "@types/text-encoding": "^0.0.36",
     "@types/vscode": "^1.59.0",
@@ -232,22 +232,24 @@
     "css-loader": "^6.7.1",
     "d3": "^7.7.0",
     "d3-tip": "^0.9.1",
-    "esbuild": "^0.20.2",
+    "esbuild": "^0.25.9",
     "eslint": "^7.27.0",
     "glob": "^7.1.7",
     "mocha": "^10.0.0",
     "style-loader": "^3.3.1",
     "typed-rest-client": "^1.5.0",
-    "typescript": "^4.3.2",
+    "typescript": "^5.9.2",
     "vscode-test": "^1.5.2",
     "webpack": "^5.73.0",
     "webpack-cli": "^4.10.0"
   },
   "dependencies": {
+    "@rdfjs/types": "^2.0.1",
     "@types/js-yaml": "^4.0.9",
     "axios": "^1.7.2",
-    "jsonld": "^8.3.2",
-    "oxigraph": "^0.3.14",
+    "jsonld": "RinkeHoekstra/jsonld.js",
+    "n3": "^1.26.0",
+    "oxigraph": ">=0.5.0-beta.0",
     "path": "^0.12.7",
     "schemarama": "https://gitpkg.now.sh/RinkeHoekstra/schemarama/core?ISSUE-48",
     "yaml": "^2.4.5"

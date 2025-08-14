@@ -6,8 +6,9 @@ import { parse } from 'yaml';
 import axios from 'axios';
 const jsonld = require('jsonld');
 const ShaclValidator = require('schemarama/shaclValidator').Validator;
-import { Store, Quad, NamedNode, BlankNode, Literal, DefaultGraph as DefaultGraphOxi, namedNode } from 'oxigraph/node.js';
-import { prefixes } from './prefixes';
+import { Store as OxiStore, Quad as OxiQuad } from 'oxigraph';
+import { Parser, Writer, Quad, Store, NamedNode, Term, Prefixes} from 'n3';
+import { prefixes } from './prefixes'; // load standard prefixes
 
 const STRICT_NQUADS_REGEX = /(<\S+?>|_:\S+)?\s+(<\S+?>)\s+(<\S+?>|_:\S+?|(".*"(^^<.+>)?))\s+(<\S+?>|_:\S+?)\s*\.(\s*#.+)?/g;
 
@@ -20,21 +21,25 @@ interface GVResponse {
 let outputChannel: vscode.OutputChannel;
 
 
-
 // Pluck prefixes from the JSON-LD @context and push into the RDF serializer
 // Only works for local contexts (not remote ones)
-function suggestContextPrefixes(json: any, rdfSerializer: any) {
+function suggestPrefixes(data: any) {
+
+	let prefixes: Prefixes = {};
 
 	var _processContext = function (contextObj: any) {
 	  Object.keys(contextObj).forEach((key) => {
 		if (key.indexOf(':') < 0 && key.indexOf('@') < 0) {
-		  var prefix = "";
+		  let namespaceIRI = "";
 		  if (typeof contextObj[key] === 'object' && !Array.isArray(contextObj[key]) && contextObj[key] !== null) {
-			prefix = contextObj[key]["@id"];
+			namespaceIRI = contextObj[key]["@id"];
 		  } else {
-			prefix = contextObj[key];
+			namespaceIRI = contextObj[key];
 		  }
-		  rdfSerializer.suggestPrefix(key, prefix);
+
+		  if(namespaceIRI.startsWith('http'))
+			prefixes[key] = new NamedNode(namespaceIRI);
+
 		} else if (key == '@context') {
 		  _getContext(contextObj[key]);
 		}
@@ -53,19 +58,23 @@ function suggestContextPrefixes(json: any, rdfSerializer: any) {
 	  }
 	};
 
-	if (json != undefined) {
-	  if (Array.isArray(json)) {
-		json.forEach((jsonObj) => { _getContext(jsonObj["@context"]) });
+	if (data != undefined) {
+	  if (Array.isArray(data)) {
+		data.forEach((jsonObj) => { _getContext(jsonObj["@context"]) });
 	  } else {
-		_getContext(json["@context"]);
+		_getContext(data["@context"]);
 	  }
 	}
+
+	return prefixes
   }
 
-async function JSONLDtoNQuads(data: string){
+async function JSONLDtoNQuads(data_object: any){
 	// Convert JSON-LD to NQuads through jsonld.js
-	const data_object = JSON.parse(data);
 	
+
+
+
 	try {
 		return await jsonld.toRDF(data_object, {format: 'application/n-quads'});
 	} catch (err:any) {
@@ -76,28 +85,59 @@ async function JSONLDtoNQuads(data: string){
 	
 }
 
-
-function serializeRDFOxigraph(store: Store, mediaType: string){
+function serializeRDF(store: Store, mediaType: string, prefixes: Prefixes){
 	if(mediaType == undefined) {
 		mediaType = "application/ld+json";
 	}
 
 	return new Promise<string|undefined>((resolve, reject) => {
 		try {
-			console.log("oxigraph serialization");
 			if(mediaType == 'application/ld+json') {
-				let nquadsResult = store.dump("application/n-quads", null); 
-				jsonld.fromRDF(nquadsResult, {format: 'application/n-quads'}).then((jsonldResult: any) => {
-					var result = JSON.stringify(jsonldResult as string, undefined, 4);
-					resolve(result);
+				const writer = new Writer({ format: "application/n-quads" });
+				writer.addQuads(store.getQuads(null, null, null, null));
+				writer.end((error, nquadsResult) => {
+					if (error) {
+						outputChannel.appendLine("Could not serialize store to JSON-LD");
+						outputChannel.appendLine(error.message);
+						reject(error);
+					} else {
+						jsonld.fromRDF(nquadsResult, {format: 'application/n-quads'}).then((jsonldResult: any) => {
+							// Apply any necessary transformations to the JSON-LD result here
+							let context: { [key: string]: string } = {};
+							
+							for (const [prefix, namedNode] of Object.entries(prefixes)) {
+								if(typeof(namedNode) == "string"){
+									context[prefix] = namedNode;
+								} else {
+									context[prefix] = namedNode.value;
+								}
+							}
+
+							
+							jsonld.compact(jsonldResult, context).then((compacted: any) => {
+								var result = JSON.stringify(compacted, undefined, 4);
+								resolve(result);
+							});
+						});
+					}
 				});
+				
 			} else {
-				var result = store.dump(mediaType,null);
-				resolve(result)
+				const writer = new Writer({ format: mediaType, prefixes: prefixes });
+				writer.addQuads(store.getQuads(null, null, null, null));
+				writer.end((error, result) => {
+					if (error) {
+						outputChannel.appendLine(`Could not serialize to ${mediaType}!`);
+						outputChannel.appendLine(error.message);
+						reject(error);
+					} else {
+						resolve(result);
+					}
+				});
 			}
 			
 		} catch (err: any) {
-			outputChannel.appendLine(`Oxigraph: Failed to serialize store to ${mediaType}! ` + err);
+			outputChannel.appendLine(`N3js: Failed to serialize store to ${mediaType}! ` + err);
 			console.log(err);
 			reject(err)
 		}
@@ -105,30 +145,61 @@ function serializeRDFOxigraph(store: Store, mediaType: string){
 
 }
 
-function loadRDFOxigraph(data: string, oxiStore: Store, mediaType: string) {
+
+
+function loadRDF(data:string, store: Store, mediaType: string){
 	if(mediaType == undefined) {
-		mediaType = "application/ld+json";
+		mediaType = "application/ld+json"
 	}
 
-	return new Promise<Store>((resolve, reject) => {
+	return new Promise<[Store, Prefixes]>((resolve, reject) => {
 		try {
 
 			if (mediaType == "application/ld+json") {
 				outputChannel.appendLine("Converting JSON-LD to NQuads to preserve named graphs");
-				JSONLDtoNQuads(data)
+				const data_object = JSON.parse(data);
+				JSONLDtoNQuads(data_object)
 					.then(nquads => {
-						oxiStore.load(nquads, "application/n-quads", undefined, undefined);
-						outputChannel.appendLine("Successfully parsed: Statements in the graph: " + oxiStore.size);
-						resolve(oxiStore);
+						const parser = new Parser({format: "application/n-quads"});
+						parser.parse(nquads,
+							(error, quad, prefixes) => {
+								if (error) {
+									outputChannel.appendLine("Error parsing RDF data");
+									outputChannel.appendLine(error.message);
+									reject(error);
+								} else if (quad) {
+									store.addQuad(quad);
+								} else {
+									let suggestedPrefixes:Prefixes = suggestPrefixes(data_object)
+									outputChannel.appendLine("Successfully parsed: Statements in the graph: " + store.size);
+									resolve([store, suggestedPrefixes]);
+								}
+									
+							}
+						);
 					}).catch((reason) => {
 						outputChannel.appendLine("Could not parse JSON-LD into graph")
 						outputChannel.appendLine(reason);
 						reject(reason);
 					});
 			} else {
-				oxiStore.load(data, mediaType, undefined, undefined);
-				outputChannel.appendLine("Successfully parsed: Statements in the graph: " + oxiStore.size);
-				resolve(oxiStore);
+				const parser = new Parser({format: mediaType});
+
+				parser.parse(data,
+					(error, quad, prefixes) => {
+						if (error) {
+							outputChannel.appendLine("Error parsing RDF data");
+							outputChannel.appendLine(error.message);
+							reject(error);
+						} else if (quad) {
+							store.addQuad(quad);
+						} else {
+							outputChannel.appendLine("Successfully parsed: Statements in the graph: " + store.size);
+							resolve([store, prefixes]);
+						}
+							
+					}
+				);
 			}
 		} catch (err:any) {
 			outputChannel.appendLine(`Failed to load data into triplestore as ${mediaType}!` + err);
@@ -140,11 +211,22 @@ function loadRDFOxigraph(data: string, oxiStore: Store, mediaType: string) {
 
 
 async function runQuery(query: string, documentText: string, mediaType: string): Promise<any[]> {
-	var oxiStore = new Store();
+	var oxiStore = new OxiStore();
+	var store = new Store()
 	var result:any[] = [];
 
-	await loadRDFOxigraph(documentText, oxiStore, mediaType).then((store: Store) => {
-		result = store.query(query);
+	await loadRDF(documentText, store, mediaType).then(([store, prefixes]) => {
+		store.getQuads(null, null, null, null).forEach((quad: Quad) => {
+			let oxiQuad = <OxiQuad> quad;
+			oxiStore.add(oxiQuad);
+		});
+		const queryResult = oxiStore.query(query);
+		if (Array.isArray(queryResult)) {
+			result = queryResult;
+		} else {
+			result = [];
+			outputChannel.appendLine("Query did not return an array result.");
+		}
 	}).catch((reason) => {
 		return [reason];
 	}).finally(() => {
@@ -157,11 +239,11 @@ async function runQuery(query: string, documentText: string, mediaType: string):
 
 
 async function getView(documentText: string, mediaType: string, showTypes: boolean): Promise<GVResponse> {
-	var store = new Store()
+	var store = new Store();
 	
 	var result:GVResponse = {status: false, message: "initialized", mediaType: "unknown"};
-	await loadRDFOxigraph(documentText, store, mediaType).then((store: Store) => {
-		const d3graph = buildD3GraphOxi(store, showTypes);
+	await loadRDF(documentText, store, mediaType).then(([store, prefixes]) => {
+		const d3graph = buildD3Graph(store, showTypes, prefixes);
 		result = {status: true, message: d3graph, mediaType: ""}; 
 	}).catch((reason) => {
 		result = {status: false, message: reason, mediaType: ""};
@@ -175,21 +257,15 @@ async function getView(documentText: string, mediaType: string, showTypes: boole
 
 
 async function toSerialization(documentText: string, fromMediaType: string, toMediaType: string): Promise<GVResponse> {
-	// var store = $rdf.graph();
-	// var serializer = $rdf.Serializer(store);
 
-	// if(fromMediaType == 'application/ld+json' || fromMediaType == 'text/json') {
-	// 	suggestContextPrefixes(JSON.parse(documentText), serializer);
-	// }
 	
 	var result:GVResponse = {status: false, message: "initialized", mediaType: "unknown"};
 	outputChannel.appendLine("Starting conversion...");
 
-	var oxiStore = new Store();
+	var store = new Store();
 
-	await loadRDFOxigraph(documentText, oxiStore, fromMediaType).then((store: Store) => {
-		console.log(store);
-		return serializeRDFOxigraph(store, toMediaType);
+	await loadRDF(documentText, store, fromMediaType).then(([store, prefixes]) => {
+		return serializeRDF(store, toMediaType, prefixes);
 	}).then((data) => {
 		result = {status:true, message: data, mediaType: toMediaType};
 	}).catch((reason) => {
@@ -222,19 +298,19 @@ function safeJSIdentifier(value:string) {
 
 
 
-function buildD3GraphOxi(store: Store, showTypes: boolean): {} {
+function buildD3Graph(store: Store, showTypes: boolean, prefixes: Prefixes): {} {
 
-	const RDF_TYPE: NamedNode = namedNode("http://www.w3.org/1999/02/22-rdf-syntax-ns#type");
-	const RDFS_SUBCLASSOF: NamedNode = namedNode("http://www.w3.org/2000/01/rdf-schema#subClassOf")
+	const RDF_TYPE: NamedNode = new NamedNode("http://www.w3.org/1999/02/22-rdf-syntax-ns#type");
+	const RDFS_SUBCLASSOF: NamedNode = new NamedNode("http://www.w3.org/2000/01/rdf-schema#subClassOf");
 
 	var nodesObject: Map<string,Node> = new Map();
 	var links: any = [];
 	var nodes: Array<Node> = [];
 
 
-	const statements: Array<Quad> = store.match(null, null, null, null);
+	const quads = store.getQuads(null, null, null, null);
 
-	for(let s of statements) {
+	for(let s of quads) {
 		// local function
 		processStatement(s);
 	}
@@ -274,11 +350,11 @@ function buildD3GraphOxi(store: Store, showTypes: boolean): {} {
 	}
 
 	function processStatement(s:Quad) {
-		let s_qname: string = buildIdOxi(s.subject);
-		let p_qname: string = buildIdOxi(s.predicate);
-		let o_qname: string = buildIdOxi(s.object);
+		let s_qname: string = buildId(s.subject, prefixes);
+		let p_qname: string = buildId(s.predicate, prefixes);
+		let o_qname: string = buildId(s.object, prefixes);
 
-		let g_qname: string = buildIdOxi(s.graph);
+		let g_qname: string = buildId(s.graph, prefixes);
 
 		// Always add the graph as node if it is not the DefaultGraph.
 		if (s.graph.termType != "DefaultGraph") {
@@ -372,19 +448,19 @@ function buildD3GraphOxi(store: Store, showTypes: boolean): {} {
 	}
 }
 
-function buildIdOxi(term: NamedNode|BlankNode|DefaultGraphOxi|Literal){
+function buildId(term: Term, prefixes: Prefixes): string {
 
 	if (term.termType == "DefaultGraph") {
 		return term.value
 	} else if (term.termType == 'NamedNode') {
 		const iri = term.value
 		
-		const entry = Object.entries(prefixes).find( ( [key, value] ) => iri.startsWith(value));
+		const entry = Object.entries(prefixes).find( ( [key, ns] ) => iri.startsWith(String(ns)));
 		// If the term's IRI starts with one of the known namespace values, replace the namespace part in the name with the prefix
 		if (entry != undefined) {
 			const [prefix, namespace] = entry;
 
-			return iri.replace(namespace, `${prefix}:`)
+			return iri.replace(String(namespace), `${prefix}:`)
 		} else {
 			return iri
 		}
@@ -588,6 +664,7 @@ export function activate(context: vscode.ExtensionContext) {
 
 	outputChannel = vscode.window.createOutputChannel("Linked Data Extension");
 	outputChannel.show(true);
+	outputChannel.appendLine("Linked Data Extension activated!");
 
 	let disposableViewer = vscode.commands.registerCommand('linked-data.view', async () => {
 		const editor = vscode.window.activeTextEditor;
@@ -941,11 +1018,19 @@ export function activate(context: vscode.ExtensionContext) {
 				let documentInfo  = await getDataAndMediaType(dataDocument);	
 				const result = await runQuery(query, documentInfo.data, documentInfo.fromMediaType);
 
-				if (result[0] instanceof Quad) {
+				if (result[0] instanceof OxiQuad) {
 					// CONSTRUCT query result
-					const filteredStore = new Store(result);
-					const serializedStore = filteredStore.dump("application/n-quads", undefined);
-					
+					// const filteredStore = new Store(result);
+					const writer = new Writer();
+					writer.addQuads(result);
+					var serializedStore;
+					await writer.end((error, result) => {
+						if (error) {
+							outputChannel.appendLine(error.message);
+							return;
+						}
+						serializedStore = result;
+					});
 					let doc = await vscode.workspace.openTextDocument({content: serializedStore, language: "turtle"});
 					await vscode.window.showTextDocument(doc, {preview: false});
 				} else {
@@ -964,7 +1049,7 @@ export function activate(context: vscode.ExtensionContext) {
 						}
 
 						for(let r of result){
-							console.log(JSON.stringify(r))
+							
 							let stringresult = [];
 							for(let v of variables){ // variables are key in the map, we hope.
 								
@@ -1080,11 +1165,7 @@ async function doFormatConversion(document: vscode.TextDocument, toMediaType: st
 		outputChannel.appendLine(`The file is already in the ${toMediaType} format`);
 		return;
 	} 
-	if (fromMediaType == 'application/trig') {
-		outputChannel.appendLine(`Unfortunately the TriG format is not supported`);
-		return;
-	}
-
+	
 	const result = await toSerialization(data, fromMediaType, toMediaType);
 	if (result.status) {
 		let doc = await vscode.workspace.openTextDocument({ content: result.message, language: targetLanguage });
@@ -1131,12 +1212,12 @@ async function validate(document: vscode.TextDocument, shaclDocument: vscode.Tex
 	let shapesStore = new Store();
 
 	outputChannel.appendLine("Loading data file");
-	await loadRDFOxigraph(doc.data, store, doc.fromMediaType);
-	let data = await serializeRDFOxigraph(store, 'application/ld+json');
+	await loadRDF(doc.data, store, doc.fromMediaType);
+	let data = await serializeRDF(store, 'application/ld+json', prefixes);
 
 	outputChannel.appendLine("Loading SHACL shape file");
-	await loadRDFOxigraph(shapes.data, shapesStore, shapes.fromMediaType);
-	let shapesData = await serializeRDFOxigraph(shapesStore, 'text/turtle');
+	await loadRDF(shapes.data, shapesStore, shapes.fromMediaType);
+	let shapesData = await serializeRDF(shapesStore, 'text/turtle', prefixes);
 	try {
 		outputChannel.appendLine("Validating data graph against shapes graph");
 		const validator = new ShaclValidator(shapesData, {annotations: {"node": "http://www.w3.org/ns/shacl#focusNode", "label": "http://www.w3.org/2000/01/rdf-schema#label"}});
