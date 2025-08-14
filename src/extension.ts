@@ -30,7 +30,7 @@ function suggestPrefixes(data: any) {
 	var _processContext = function (contextObj: any) {
 	  Object.keys(contextObj).forEach((key) => {
 		if (key.indexOf(':') < 0 && key.indexOf('@') < 0) {
-		  var namespaceIRI = "";
+		  let namespaceIRI = "";
 		  if (typeof contextObj[key] === 'object' && !Array.isArray(contextObj[key]) && contextObj[key] !== null) {
 			namespaceIRI = contextObj[key]["@id"];
 		  } else {
